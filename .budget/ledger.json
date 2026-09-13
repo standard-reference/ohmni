@@ -1,0 +1,47 @@
+{
+  "dataset_id": "sha256:0d9589321042540b1c1c0525fc593b60e750b14c672b1ea7f141273ba8f1f706",
+  "epochs": {
+    "2019H1": {
+      "epoch_id": "2019H1",
+      "max_opens": null,
+      "opens": [
+        {
+          "at": "2026-09-13T15:55:09.461111+00:00",
+          "harness_version": "h:0daf13110ebec352",
+          "note": "derivation"
+        }
+      ],
+      "sealed": false
+    },
+    "2021H1": {
+      "epoch_id": "2021H1",
+      "max_opens": null,
+      "opens": [
+        {
+          "at": "2026-09-13T15:55:13.733271+00:00",
+          "harness_version": "h:0daf13110ebec352",
+          "note": "derivation"
+        }
+      ],
+      "sealed": false
+    },
+    "2023H1": {
+      "epoch_id": "2023H1",
+      "max_opens": null,
+      "opens": [
+        {
+          "at": "2026-09-13T15:55:17.582578+00:00",
+          "harness_version": "h:0daf13110ebec352",
+          "note": "derivation"
+        }
+      ],
+      "sealed": false
+    },
+    "2024H1": {
+      "epoch_id": "2024H1",
+      "max_opens": 3,
+      "opens": [],
+      "sealed": true
+    }
+  }
+}

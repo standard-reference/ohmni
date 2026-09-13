@@ -39,6 +39,9 @@ from harness.parameters import UnresolvableParameter, WindowContext
 from harness.pipeline import (RunPolicy, compile_strategy, field_phenomena,
                               horizon_volatility, run)
 from harness.prediction import Ledger, PredictionRegistered, probability_from_support
+from harness.budget import BudgetExhausted, BudgetLedger, harness_version
+from harness.coverage import BasisRealization, check_backfillable, compare
+from harness.dataset import freeze
 from harness.replication import Derivation, group_by_core, replicated_cores
 from harness.strategy import resolve_trade_type
 
@@ -58,6 +61,10 @@ BASIS = Basis(
         BasisField("pageviews_rate", "wikimedia.pageviews", "pageviews"),
         BasisField("price_return", "prices.daily", "price"),
         BasisField("discourse_rate", "hn.stories", "hn_stories"),
+        # Real editorial publication, now available in EVERY epoch via the bulk
+        # archive. This is what the rate-limited query API could not supply, and
+        # its absence is what forced report 002 onto a narrower basis.
+        BasisField("news_rate", "gdelt.gkg", "news"),
         BasisField("short_volume_share", "finra.short", "short_volume"),
         BasisField("revenue_yoy", "edgar.xbrl", "fundamental"),
     ),
@@ -67,7 +74,7 @@ BASIS = Basis(
 #: rate-limits to the point of being unusable for a bulk historical fetch, and
 #: that is a property of the source worth recording rather than a bug worth
 #: retrying around.
-SOURCES = ("edgar", "wikimedia", "prices", "finra", "hackernews")
+SOURCES = ("edgar", "wikimedia", "prices", "finra", "hackernews", "gdelt_bulk")
 
 
 def windows(epoch: Epoch):
@@ -158,12 +165,42 @@ def derive(epoch: Epoch, registry_out: dict) -> tuple[list[Derivation], dict]:
                 epoch_id=epoch.id, entity=ent.ticker, window_start=start,
                 core=tt.core, trade_type=tt, support=log.support.total,
                 specificity=getattr(mech, "specificity", 0.0)))
-    return out, {"layer": layer, "registry": registry, "cal": cal,
-                 "policy": policy, "phen": phen, "stats": stats}
+    # What this epoch could ACTUALLY express, recorded so a cross-epoch claim can
+    # be refused when the epochs were not observed over the same basis.
+    probe_start = next(iter(windows(epoch)))
+    probe_events = tuple(Bus(layer, probe_start).replay(
+        probe_start + BASIS.frame_span * BASIS.frame_count))
+    probe_obs = observe(tuple(e for e in probe_events
+                              if _entity(e.subject) == ENTITIES[0].id),
+                        BASIS, probe_start, registry)
+    realization = BasisRealization.of(probe_obs, BASIS, epoch.id)
+    return out, {"layer": layer, "registry": registry, "cal": cal, "policy": policy,
+                 "phen": phen, "stats": stats, "realization": realization}
 
 
 def main():
     es = DEFAULT_EPOCHS
+
+    # ── the dataset is pinned before anything is computed ──────────────────
+    from pathlib import Path
+
+    from contract import SourceRegistry as _Reg
+    frozen = freeze(Path(".cache/raw"), Path(".cache/gkg_reduced"))
+    version = harness_version()
+    ledger_budget = BudgetLedger.load()
+    ledger_budget.dataset_id = frozen.id
+    for e in es.epochs:
+        ledger_budget.declare(e.id, sealed=e.holdout, max_opens=3 if e.holdout else None)
+    print(f"DATASET  {frozen.short()}  {frozen.file_count} files  "
+          f"{frozen.total_bytes / 1e6:.1f} MB")
+    print(f"HARNESS  {version}")
+
+    # A basis resting on a source whose history cannot be fetched would be
+    # present in some epochs and absent in others. Checked before a single window.
+    probe = HistoricalDataLayer(sources=SOURCES)
+    check_backfillable(BASIS, _Reg(tuple(probe.sources())))
+    print("BASIS    every source supports bulk history\n")
+
     print("EPOCHS (declared before anything runs)")
     for e in es.epochs:
         print(f"  {e.id}  {e.start:%Y-%m-%d}..{e.end:%Y-%m-%d}  "
@@ -172,11 +209,17 @@ def main():
 
     all_derivations: list[Derivation] = []
     contexts: dict[str, dict] = {}
+    realizations: list[BasisRealization] = []
 
     for epoch in es.derivation():
         print("=" * 78)
         print(f"DERIVATION EPOCH {epoch.id} — {epoch.regime_note}")
         print("=" * 78)
+        try:
+            ledger_budget.charge(epoch.id, version, "derivation")
+        except BudgetExhausted as e:
+            print(f"  REFUSED: {e}")
+            continue
         derivations, ctx = derive(epoch, {})
         contexts[epoch.id] = ctx
         all_derivations += derivations
@@ -184,6 +227,7 @@ def main():
         print(f"  null      {cal.describe()}")
         print(f"  tolerance {ctx['policy'].moved_tolerance}  ({ctx['policy'].moved_tolerance_source})")
         print(f"  {dict(ctx['stats'])}")
+        realizations.append(ctx["realization"])
         for core_id, n in Counter(d.core.id for d in derivations).items():
             example = next(d for d in derivations if d.core.id == core_id)
             print(f"  derived {core_id} x{n}  "
@@ -191,11 +235,24 @@ def main():
                   f"magnitude {example.trade_type.direction['target_magnitude']})")
         print()
 
-    print("=" * 78 + "\nREPLICATION\n" + "=" * 78)
+    print("=" * 78 + "\nBASIS COMMENSURABILITY\n" + "=" * 78)
+    for r in realizations:
+        print(f"  {r.describe()}")
+    verdict = compare(realizations, min_coverage=0.75,
+                      field_phenomena={k: v.value for k, v in
+                                       contexts[realizations[0].epoch_id]["phen"].items()})
+    print(f"  verdict: {verdict.verdict} — {verdict.reason}")
+
+    print("\n" + "=" * 78 + "\nREPLICATION\n" + "=" * 78)
     for rep in group_by_core(all_derivations):
         print(f"  {rep.summary(es.min_replications)}")
         print(f"      {rep.core.describe()}")
-    promoted = replicated_cores(all_derivations, es)
+    promoted = replicated_cores(all_derivations, es, realizations, min_coverage=0.75)
+    for rep in group_by_core(all_derivations):
+        if rep.refused_reason:
+            print(f"  REFUSED {rep.core.id}: {rep.refused_reason}")
+    ledger_budget.save()
+    print(f"\n{ledger_budget.report()}")
     if not promoted:
         print("\n  No core replicated across epochs. That is the result: nothing "
               "here recurred, so nothing is promoted.")
