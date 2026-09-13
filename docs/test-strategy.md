@@ -155,3 +155,80 @@ Stated because a green suite invites over-reading.
   or by root-set overlap is unimplemented.
 - Echo collapse resolves through `reports_on`. Where a source does not declare it,
   echoes are invisible and independence is over-estimated — degraded, not caught.
+
+---
+
+# The spark path
+
+`demo/first_spark.py` runs the whole thing: data layer → bus → graph → anomaly →
+observation → mechanism → corroboration → invalidation → gate.
+
+On the `localised` scenario it produces one spark:
+
+| Slot | Content |
+|---|---|
+| trigger | `information_seeking rose +60σ` on the entity's own edge |
+| observation | residue `pageviews_rate` (spike_and_return); `price_return`, `news_rate`, `short_volume_share` invariant; `revenue_yoy` and `options_skew` not representable, for two different reasons |
+| mechanism | `transient_attention_no_flow` — attention rose and decayed with no corroborating coverage, flow or positioning, so it does not reprice. Predicts `\|move\| ≤ 0.02` on the instrument over 14d |
+| corroboration | three legs from the invariant half, independence 1.0 each, FINRA discounted to 0.9 for being attested rather than constitutive |
+| invalidation | six auto-derived leaves, no custom conditions, thesis `active` |
+
+The interesting part is what got **rejected**. `attention_precedes_flow` — the
+obvious story — fails the shape gate: it claims attention persists and converts
+to flow, which predicts a sustained path, and the observed residue is a
+spike-and-return. The causal story and the observed path disagree, computably,
+before any model is consulted. That rejection is stored with its reason, because
+the ruled-out half is the record of what the data actually said.
+
+`market_wide` produces **no** spark, and the reason is worth keeping: what is
+special about it is *joint* — four fields moving together — and per-field
+cancellation is blind to joint structure by construction. A permutation null
+preserves each field's marginals, so the magnitudes alone are not evidence. The
+pipeline correctly declines rather than manufacturing a thesis.
+
+`quiet` produces no anomaly at all.
+
+## Where the numbers live
+
+Every parameter that has no principled default is a required field on
+`RunPolicy`, recorded into the run manifest. A test asserts none of them has a
+default, because a default is a threshold nobody can find.
+
+`moved_tolerance` is the only one not chosen: it is the null distribution's 95th
+percentile, so it comes with a *measured* false-positive rate (0.050) rather than
+a preference. The rest are chosen, and two of them are explicitly bootstrap
+values — `specificity_floor` and `support_threshold` cannot be set correctly
+until the calibration ledger has resolved predictions to punish over-narrow
+claims after the fact.
+
+## What the spark path does NOT establish
+
+- **The mechanism came from a template library I wrote.** It is not discovery.
+  The deterministic gates around the slot are what is tested; what a model would
+  add is templates nobody wrote down, which is the thing the harness exists to
+  find.
+- **"Promoted" means "passed thresholds that were invented."** Specificity gates
+  promotion and calibration is supposed to punish over-narrow claims afterwards.
+  Only the first half exists, and specificity alone is gameable in the opposite
+  direction — spurious precision scores brilliantly.
+- **Nothing is scored.** There is no prediction registration and no calibration
+  ledger yet, so the spark is a pre-registration with no resolution behind it.
+- **Corroboration by invariance is one reading.** "These three processes held
+  still" supports a no-move claim; it would support a directional claim far more
+  weakly, and that asymmetry is not yet modelled.
+
+## Two bugs this path caught
+
+Both were the same shape, and both are worth recording because they are the
+failure mode this architecture is most prone to:
+
+1. The graph summed every field regardless of its declared aggregation, so it
+   fired anomalies on averageable fields (returns) that cancellation correctly
+   called invariant — a spark opening on a phenomenon the observation says did
+   not move.
+2. The graph and the observation used different noise estimators, so they
+   disagreed about what moved.
+
+The fix in both cases was to read the declaration rather than keep a second
+opinion. There is now a test asserting the trigger only fires on phenomena the
+observation calls moved.

@@ -63,6 +63,27 @@ class NullCalibration:
         at_least = sum(1 for s in self.samples if s >= ratio)
         return (at_least + 1) / (self.n + 1)
 
+    def quantile(self, q: float) -> float:
+        """The separation the null reaches at `q`.
+
+        Using this as a tolerance is a declaration of the false-positive rate you
+        are accepting — at q=0.99, one field in a hundred that moved only by noise
+        will be called moved. That is a *measured* statement about the control,
+        which is what makes it different from picking a number.
+
+        The ceiling (q=1.0) is an extreme order statistic and noisy; it is the
+        most conservative choice available and usually too conservative to leave
+        anything.
+        """
+        if not self.samples:
+            return 0.0
+        idx = min(len(self.samples) - 1, max(0, int(round(q * (len(self.samples) - 1)))))
+        return self.samples[idx]
+
+    def false_positive_rate(self, tolerance: float) -> float:
+        """What fraction of null fields this tolerance would call 'moved'."""
+        return sum(1 for s in self.samples if s > tolerance) / self.n if self.n else 0.0
+
     def beyond_null(self, ratio: float) -> bool:
         """Larger than anything the null produced. The strongest statement a
         finite control can support, and it carries `resolution` as its p."""

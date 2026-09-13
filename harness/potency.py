@@ -88,6 +88,16 @@ class PotencyReader:
             for d in r.lineage.documents:
                 self._by_doc.setdefault(d, r)
 
+    def role_of(self, record: Record) -> TruthRole | None:
+        em = self.registry.emission_for(record)
+        return em.role if em else None
+
+    def support_cap_for(self, record: Record) -> float:
+        """The most one record of this role may contribute as a corroborating leg,
+        read from its declared role rather than inferred from its potency."""
+        role = self.role_of(record)
+        return ROLE_WEIGHTS[role].support_cap if role else 0.0
+
     def phenomenon_of(self, record: Record) -> Phenomenon | None:
         em = self.registry.emission_for(record)
         return em.records_of if em else None
