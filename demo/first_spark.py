@@ -60,6 +60,13 @@ def policy_from(cal) -> RunPolicy:
         hysteresis_fraction=0.5,
         k_broken_legs=2,
         delta_reality_days=180,
+        # `degraded` cuts to a quarter, not to 90%. Hysteresis converts
+        # false-kills into slow-kills, and that trade is only acceptable if
+        # degraded sizing is aggressive rather than cosmetic.
+        degraded_multiplier=0.25,
+        support_scale=3.0,
+        inference_delay_minutes=15,
+        min_frames_before_deciding=6,
     )
 
 

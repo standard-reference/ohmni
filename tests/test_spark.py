@@ -50,7 +50,9 @@ def policy(calibration):
         moved_tolerance=tol,
         moved_tolerance_source=f"null q=0.95, measured FP {calibration.false_positive_rate(tol):.3f}",
         cluster_cap=0.70, specificity_floor=0.30, support_threshold=0.50,
-        hysteresis_fraction=0.5, k_broken_legs=2, delta_reality_days=180)
+        hysteresis_fraction=0.5, k_broken_legs=2, delta_reality_days=180,
+        degraded_multiplier=0.25, support_scale=3.0,
+        inference_delay_minutes=15, min_frames_before_deciding=6)
 
 
 def go(scenario, policy):

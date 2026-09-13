@@ -215,6 +215,35 @@ SOURCES: tuple[SourceDeclaration, ...] = (
 
 SOURCES = SOURCES + (
     SourceDeclaration(
+        source_id="prediction.market",
+        measurement_process=("Aggregated explicit probabilistic belief about a named "
+                             "future event, priced on a real-money venue"),
+        retrieval=Retrieval.AS_OF,
+        record_survivorship=Survivorship.COMPLETE,
+        backfilled=False,
+        emits=(
+            Emission(kind="pm_contract", value_field=None, native_cadence="irregular",
+                     records_of=Phenomenon.AGGREGATED_BELIEF, role=TruthRole.CONSTITUTIVE,
+                     subject_type="instrument",
+                     quantity=_q(Dimension.COUNT, "contracts", Aggregation.ADDITIVE,
+                                 temporal=TemporalType.INSTANT)),
+            Emission(kind="pm_quote", value_field=None, native_cadence="P1D",
+                     records_of=Phenomenon.AGGREGATED_BELIEF, role=TruthRole.CONSTITUTIVE,
+                     subject_type="instrument",
+                     quantity=_q(Dimension.PROBABILITY, "probability",
+                                 Aggregation.POINT_IN_TIME, temporal=TemporalType.INSTANT)),
+            Emission(kind="pm_resolution", value_field=None, native_cadence="irregular",
+                     records_of=Phenomenon.AGGREGATED_BELIEF, role=TruthRole.CONSTITUTIVE,
+                     subject_type="instrument",
+                     quantity=_q(Dimension.COUNT, "resolutions", Aggregation.ADDITIVE,
+                                 temporal=TemporalType.INSTANT)),
+        ),
+        # Instrument-level, not source-level: a market on "Northwind above X" is
+        # delta-coupled to the equity; one on "Fed cuts in March" is coupled to
+        # rates and to no equity at all.
+        couples_to=(Coupling(subject=INST_A, strength=0.8, instrument=INST_A),),
+    ),
+    SourceDeclaration(
         source_id="edgar.filings",
         measurement_process="Electronic filing submission to SEC EDGAR; acceptance datetime",
         retrieval=Retrieval.AS_OF,
@@ -252,11 +281,14 @@ SOURCE_BY_ID = {s.source_id: s for s in SOURCES}
 # ── Observation scenarios ───────────────────────────────────────────────────
 # Each is 8 weekly frames. The shape of each field across those frames is the
 # ground truth every B2 assertion is checked against.
+#: Windows are DISJOINT by construction, and each carries a 14-day resolution
+#: tail clear of the next. Overlapping two scenarios puts two price series on one
+#: instrument, and a prediction registered in one resolves against the other.
 SCENARIOS: dict[str, dict] = {
     # One field moves while correlated peers hold invariant: a specific, localised
     # event. Residue cardinality 1 against invariant cardinality 3 — high specificity.
     "localised": {
-        "start": dt(2019, 3, 4),
+        "start": dt(2019, 4, 1),
         "pageviews": [1000, 1010, 995, 4000, 3800, 1400, 1050, 1005],
         "price_ret":  [0.0002, -0.0003, 0.0001, 0.0004, -0.0002, 0.0003, 0.0000, 0.0001],
         "news_rate":  [3, 3, 4, 3, 4, 3, 3, 4],
@@ -266,7 +298,7 @@ SCENARIOS: dict[str, dict] = {
     # Everything moves together: a market-wide shift with no attribution.
     # Residue cardinality 4 against invariant cardinality 0 — low specificity.
     "market_wide": {
-        "start": dt(2019, 6, 3),
+        "start": dt(2019, 9, 30),
         "pageviews": [1000, 1020, 1900, 3600, 3700, 3500, 3400, 3300],
         "price_ret":  [0.0002, 0.0010, 0.0090, 0.0180, 0.0175, 0.0160, 0.0155, 0.0150],
         "news_rate":  [3, 4, 9, 18, 19, 17, 16, 16],
@@ -277,12 +309,23 @@ SCENARIOS: dict[str, dict] = {
     # by fuzzy name match. Residue that is really entity drift, indistinguishable
     # from a finding unless resolution confidence reaches the computation.
     "entity_drift": {
-        "start": dt(2019, 9, 2),
+        "start": dt(2020, 1, 6),
         "pageviews": [1000, 1005, 998, 1002, 1010, 995, 1000, 1008],
         "price_ret":  [0.0001, -0.0002, 0.0002, 0.0000, 0.0001, -0.0001, 0.0002, 0.0000],
         "news_rate":  [3, 3, 4, 14, 16, 14, 4, 3],
         "short_share": [0.21, 0.22, 0.21, 0.22, 0.21, 0.22, 0.21, 0.22],
         "news_confidence": 0.55,          # fuzzy name match — tier 3
+    },
+    # Attention steps up and HOLDS, with flow still invariant. The directional
+    # template's story implies exactly this path, so it survives the shape gate
+    # that `localised` fails. Declared here before any result was seen.
+    "sustained_attention": {
+        "start": dt(2019, 7, 1),
+        "pageviews": [1000, 1010, 995, 3900, 4000, 3950, 4050, 3980],
+        "price_ret":  [0.0002, -0.0003, 0.0001, 0.0004, -0.0002, 0.0003, 0.0000, 0.0001],
+        "news_rate":  [3, 3, 4, 3, 4, 3, 3, 4],
+        "short_share": [0.21, 0.22, 0.21, 0.22, 0.21, 0.22, 0.21, 0.22],
+        "news_confidence": 0.97,
     },
     # Nothing moves. The control for the control.
     "quiet": {
@@ -297,6 +340,12 @@ SCENARIOS: dict[str, dict] = {
 
 FRAME_COUNT = 8
 FRAME_DAYS = 7
+
+#: Weeks of continuation past the last observed frame, held at the final frame's
+#: level. A prediction registered on the last frame needs data to resolve
+#: against; without a tail every horizon runs off the end of the world and
+#: nothing is ever scored.
+TAIL_WEEKS = 4
 
 # Publication lag is read from each source's own declared Emission — there is no
 # second table here to drift out of step with it.
@@ -332,15 +381,20 @@ def scenario_records(name: str, subject: str = ENT_A, shuffled: bool = False,
     start: datetime = spec["start"]
     out: list[Record] = []
 
-    weeks = list(range(FRAME_COUNT))
+    weeks = list(range(FRAME_COUNT + TAIL_WEEKS))
+    def level(series, w):
+        # The tail holds the last observed frame's level; it is continuation, not
+        # new signal, and it is outside the declared frame count either way.
+        return series[min(w, FRAME_COUNT - 1)]
+
     if shuffled:
         # Permute the week index independently per field: levels survive, joint
         # structure does not.
         def perm(salt: str) -> list[int]:
             r = random.Random(_seed(name, salt, "null", shuffle_seed))
-            w = list(weeks)
+            w = list(range(FRAME_COUNT))
             r.shuffle(w)
-            return w
+            return w + list(range(FRAME_COUNT, FRAME_COUNT + TAIL_WEEKS))
         pv_w, pr_w, nw_w, sh_w = perm("pv"), perm("pr"), perm("nw"), perm("sh")
     else:
         pv_w = pr_w = nw_w = sh_w = weeks
@@ -349,7 +403,7 @@ def scenario_records(name: str, subject: str = ENT_A, shuffled: bool = False,
         week_start = start + timedelta(days=FRAME_DAYS * w)
 
         # wikimedia.pageviews — hourly
-        hourly = spec["pageviews"][pv_w[w]] / 24.0
+        hourly = level(spec["pageviews"], pv_w[w]) / 24.0
         for day in range(FRAME_DAYS):
             for hour in range(24):
                 et = week_start + timedelta(days=day, hours=hour)
@@ -366,19 +420,19 @@ def scenario_records(name: str, subject: str = ENT_A, shuffled: bool = False,
         # prices.eod + finra.short — daily
         for day in range(FRAME_DAYS):
             et = week_start + timedelta(days=day, hours=16)
-            ret = spec["price_ret"][pr_w[w]] + _jitter((name, subject, "pr", w, day), 0.0004)
+            ret = level(spec["price_ret"], pr_w[w]) + _jitter((name, subject, "pr", w, day), 0.0004)
             out.append(Record(
                 id=f"px_{subject}_{et:%Y%m%d}",
-                kind="price", subject=INST_A if subject == ENT_A else INST_B,
+                kind="price", subject=INSTRUMENTS_OF[subject][0],
                 event_time=et, knowable_at=et + lag("price"),
                 value={"close_return": round(ret, 8)}, status=Status.REPORTED,
                 source_id="prices.eod",
                 lineage=Lineage(documents=frozenset({f"tape_{et:%Y%m%d}"})),
             ))
-            sh = spec["short_share"][sh_w[w]] + _jitter((name, subject, "sh", w, day), 0.004)
+            sh = level(spec["short_share"], sh_w[w]) + _jitter((name, subject, "sh", w, day), 0.004)
             out.append(Record(
                 id=f"sv_{subject}_{et:%Y%m%d}",
-                kind="short_volume", subject=INST_A if subject == ENT_A else INST_B,
+                kind="short_volume", subject=INSTRUMENTS_OF[subject][0],
                 event_time=et, knowable_at=et + lag("short_volume"),
                 value={"short_share": round(sh, 6), "total_volume": 1_000_000},
                 status=Status.REPORTED,
@@ -388,7 +442,7 @@ def scenario_records(name: str, subject: str = ENT_A, shuffled: bool = False,
 
         # gdelt.news — irregular, becomes a rate-per-window field at the basis
         # resolution. A count, never a zero-filled series.
-        n = spec["news_rate"][nw_w[w]]
+        n = level(spec["news_rate"], nw_w[w])
         for i in range(n):
             et = week_start + timedelta(days=(i * FRAME_DAYS) // max(n, 1), hours=9 + (i % 6))
             doc = f"art_{subject}_{name}_{w}_{i}"
@@ -544,7 +598,7 @@ def social_records() -> tuple[Record, ...]:
 # they score as twelve independent legs. They are one.
 
 ECHO_ACCESSION = "0000000001-19-000055"
-ECHO_EVENT_AT = dt(2019, 12, 2, 21, 2)   # deliberately clear of every
+ECHO_EVENT_AT = dt(2020, 5, 4, 21, 2)   # deliberately clear of every
                                         # observation window: this cluster
                                         # tests independence, not cancellation
 ECHO_ARTICLE_COUNT = 12
@@ -587,4 +641,81 @@ def echo_cluster() -> tuple[Record, ...]:
             lineage=Lineage(documents=frozenset({doc}),
                             reports_on=frozenset({ECHO_ACCESSION})),
         ))
+    return tuple(sorted(out, key=lambda r: (r.knowable_at, r.id)))
+
+
+# ── Prediction markets — a distinct measurement process ─────────────────────
+# Aggregated explicit probabilistic belief about a named future event. Nothing
+# else in the source set produces definitively resolved outcomes, which makes it
+# both an independent leg and the cheapest external calibration benchmark in the
+# whole design.
+
+PM_CONTRACT_ID = "pm_fixture_NWS-MOVE-APR15"
+PM_RESOLVE_BY = dt(2019, 5, 27, 21, 0)
+PM_WINDOW_START = dt(2019, 5, 13)
+PM_MOVE_THRESHOLD = 0.02
+
+
+@lru_cache(maxsize=None)
+def prediction_market_records() -> tuple[Record, ...]:
+    out: list[Record] = []
+
+    # The instrument definition. Its resolution CRITERION carries a version and
+    # its own availability date: venues clarify ambiguous wording after launch,
+    # which is a restatement of the instrument rather than of a value.
+    for version, knowable, text in (
+        (1, dt(2019, 4, 20, 12, 0), "Moves more than 2% between May 13 and May 27."),
+        (2, dt(2019, 4, 25, 12, 0),
+         "Closing price on 2019-05-27 differs from the 2019-05-13 close by more "
+         "than 2% in either direction, per the consolidated tape."),
+    ):
+        out.append(Record(
+            id=f"{PM_CONTRACT_ID}_criterion_v{version}", kind="pm_contract", subject=INST_A,
+            event_time=knowable, knowable_at=knowable,
+            value={"contract_id": PM_CONTRACT_ID, "venue": "fixture_exchange",
+                   "type": "binary", "stake": "real_money",
+                   "question": "Will Northwind common move more than 2% by 2019-04-15?",
+                   "resolution_criterion": {"text": text, "version": version},
+                   "resolves_by": PM_RESOLVE_BY.isoformat(),
+                   "couples_to": [{"subject": INST_A, "strength": 0.8}]},
+            status=Status.REPORTED, source_id="prediction.market",
+            lineage=Lineage(documents=frozenset({f"{PM_CONTRACT_ID}_v{version}"})),
+            revision=Revision(index=version - 1, chain_length=2,
+                              superseded_at=dt(2019, 4, 25, 12, 0) if version == 1 else None),
+        ))
+
+    # Quotes are transient. An unrecorded price is gone — this is record-now data,
+    # and never a bare "probability": mid is a convention, so the method travels
+    # with the number.
+    for day in range(40):
+        at = dt(2019, 4, 25, 14, 0) + timedelta(days=day)
+        if at > PM_RESOLVE_BY:
+            break
+        drift = 0.30 + 0.004 * day + _jitter(("pm", day), 0.01)
+        bid, ask = round(drift - 0.02, 4), round(drift + 0.02, 4)
+        out.append(Record(
+            id=f"{PM_CONTRACT_ID}_q_{at:%Y%m%d}", kind="pm_quote", subject=INST_A,
+            event_time=at, knowable_at=at,
+            value={"contract_id": PM_CONTRACT_ID, "bid": str(bid), "ask": str(ask),
+                   "last": str(round(drift, 4)),
+                   "implied_probability": {"value": round((bid + ask) / 2, 4),
+                                           "method": "mid"},
+                   "volume_24h": "48000", "open_interest": "210000",
+                   "liquidity_flag": "adequate",
+                   "days_to_resolution": (PM_RESOLVE_BY - at).days},
+            status=Status.REPORTED, source_id="prediction.market",
+            lineage=Lineage(documents=frozenset({f"{PM_CONTRACT_ID}_book_{at:%Y%m%d}"})),
+        ))
+
+    # The outcome, with its own revision chain: resolutions can be disputed and
+    # overturned, so it behaves exactly like a restated figure.
+    out.append(Record(
+        id=f"{PM_CONTRACT_ID}_resolution", kind="pm_resolution", subject=INST_A,
+        event_time=PM_RESOLVE_BY, knowable_at=PM_RESOLVE_BY,
+        value={"contract_id": PM_CONTRACT_ID, "outcome": "no",
+               "resolved_at": PM_RESOLVE_BY.isoformat()},
+        status=Status.REPORTED, source_id="prediction.market",
+        lineage=Lineage(documents=frozenset({f"{PM_CONTRACT_ID}_settle"})),
+        revision=Revision(index=0, chain_length=1),
+    ))
     return tuple(sorted(out, key=lambda r: (r.knowable_at, r.id)))

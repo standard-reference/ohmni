@@ -232,3 +232,106 @@ failure mode this architecture is most prone to:
 The fix in both cases was to read the declaration rather than keep a second
 opinion. There is now a test asserting the trigger only fires on phenomena the
 observation calls moved.
+
+---
+
+# From spark to strategy
+
+`demo/strategy_run.py` continues the path: promoted spark → generic trade type →
+strategy over a universe → execution → registered prediction → resolution →
+calibration ledger, scored against a prediction market.
+
+## Why a trade type and not a trade
+
+A **single-trade thesis** ("buy this name on this date because this spiked")
+burns a historical window for one data point, cannot be replicated, and produces
+exactly one Brier score forever. It is the thing this layer exists not to build.
+
+A **TradeType** is a parameterised form whose conditions are expressed over basis
+fields and phenomena, with **no entity id and no date anywhere inside it**. That
+is checked structurally — `is_generic()` serialises the form and looks for
+instance literals — because it is the property that makes cross-sectional
+replication possible, and §6's answer to sample size depends entirely on it.
+
+A **StrategySpec** composes trade types over a universe that is itself a
+*coverage requirement* rather than a list of names: an entity enters by having
+the basis covered and leaves when it does not. The bank in the fixture has no
+pageviews, so it is excluded — and excluded is recorded as `no_coverage`, never
+as absence of the phenomenon.
+
+## The compiled form
+
+```
+trade type   tt_transient_attention_no_flow      stance: abstain
+entry        information_seeking residue, shape=spike_and_return, separation >= 3.70
+             requires invariant: editorial_publication, exchange_activity,
+                                 off_exchange_routing
+direction    neutral, |move| <= 0.02 over 14d
+exit         degraded -> scale to 0.25 ; invalidated -> exit
+sizing       base x support 0.676, degraded x0.25
+universe     coverage requirement over four phenomena
+```
+
+Every field carries `derived_from` naming the principle it came from, which is
+what lets a critique check the compiled rule against its source claims
+mechanically rather than trusting the translation.
+
+`compile()` completeness is stated rather than approximated: three residue shapes
+have declared predicates, two are refused with a reason. Silently compiling a
+shape you cannot express produces a rule that does not implement the claim it
+cites.
+
+## Firing is not sizing
+
+An `abstain` stance still **fires**. It makes a falsifiable claim that nothing
+will happen, and that claim is registered and scored; whether capital moves is
+downstream of the claim and never a condition on it. In the fixture run the
+strategy fires six times across two entities and takes zero positions — and the
+six predictions are what the ledger scores.
+
+## The ledger
+
+- **Score forward, never backward** is structural: a prediction whose horizon has
+  already elapsed at registration cannot be registered at all.
+- A prediction cannot be resolved before its horizon.
+- Predictions are immutable once made.
+- Calibration accrues to the **trade type**, across every entity it fired on.
+- The probability comes from the accumulated support via the logistic — which is
+  the reason support was accumulated in log-odds in the first place, so no extra
+  calibration constant is invented in between.
+
+Fixture result: six predictions at p=0.8837, all held, Brier 0.0135 against the
+market's 0.1555 at registration time.
+
+## Findings from this stage
+
+**Invariance corroborates a no-move claim and cannot corroborate a directional
+one.** The `sustained_attention` scenario produces a mechanism predicting
+appreciation, and its corroboration scores **zero** — the invariant legs assert
+"this held still", which the two-tier alignment's sign gate correctly refuses to
+count toward "price will rise". The spark is complete but not promoted, and
+compiles to no strategy. This asymmetry was flagged as unmodelled at the previous
+stage; it is now enforced, and the consequence is that the fixture has no
+corroborated directional trade type. Getting one requires a *directional*
+independent leg, which is a fixture gap, not a code gap.
+
+**A strategy is compiled only from a promoted spark.** Compiling an ungated spark
+makes the gate decorative — the thesis reaches capital regardless of whether it
+cleared specificity and support.
+
+**Scenario windows must be disjoint including their resolution tails.** Two
+scenarios overlapping on one instrument superposes two price series, and a
+prediction registered in one resolves against the other. Caught by a resolved
+move of +20% on a scenario built to be flat.
+
+## What this stage does NOT establish
+
+- **The market benchmark is a market I wrote.** Beating it proves the plumbing —
+  registration at the right timestamp, the complement of the right side, Brier
+  computed against a price observable at registration — and nothing about edge.
+- **Six predictions on synthetic data is not a track record.** The ledger exists
+  so that a real one can accumulate; it has not.
+- **`hit_rate` 1.0 means the fixture was built flat.** The claim was that nothing
+  would move, in a scenario constructed with nothing moving.
+- **No expectation envelope, no strategy decay monitoring, no portfolio layer.**
+  A live strategy is monitored by nothing here once it is deployed.

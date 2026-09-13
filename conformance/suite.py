@@ -205,27 +205,54 @@ def _restatement_as_of(layer: DataLayer) -> str | None:
     if not chained:
         return ("layer declares revision chains but serves none; a restatement "
                 "cannot be distinguished from a first print")
-    head = next(r for r in chained if r.revision.index == 0)
-    later = next(r for r in chained
-                 if r.revision.index > 0 and r.value.get("period_end") == r.value.get("period_end"))
-    before = layer.query(head.subject, head.kind, WIDE,
-                         as_of=later.knowable_at - timedelta(seconds=1))
-    after = layer.query(head.subject, head.kind, WIDE, as_of=later.knowable_at)
-    b = _amount_for(before, head), _amount_for(after, head)
-    if b[0] is None or b[1] is None:
-        return f"period vanished across the restatement boundary: {b}"
-    if b[0] == b[1]:
-        return (f"as_of before and after the amendment both return {b[0]} — "
-                "the original print is not recoverable")
+
+    # Group by the thing being revised. Picking a head from one chain and a
+    # successor from another compares two unrelated records and reports a
+    # vanished period — a bug this check had until a second chain existed.
+    groups: dict[tuple, list[Record]] = {}
+    for r in chained:
+        groups.setdefault(_chain_key(r), []).append(r)
+
+    testable = [g for g in groups.values()
+                if any(r.revision.index == 0 for r in g)
+                and any(r.revision.index > 0 for r in g)]
+    if not testable:
+        return ("every revision chain has only one link served; the earlier "
+                "print is not recoverable")
+
+    for group in testable:
+        head = next(r for r in group if r.revision.index == 0)
+        later = min((r for r in group if r.revision.index > 0),
+                    key=lambda r: r.revision.index)
+        before = layer.query(head.subject, head.kind, WIDE,
+                             as_of=later.knowable_at - timedelta(seconds=1))
+        after = layer.query(head.subject, head.kind, WIDE, as_of=later.knowable_at)
+        b = _value_for(before, head), _value_for(after, head)
+        if b[0] is None or b[1] is None:
+            return f"{_chain_key(head)} vanished across the restatement boundary: {b}"
+        if b[0] == b[1]:
+            return (f"as_of before and after the amendment both return {b[0]} — "
+                    "the original print is not recoverable")
     return None
 
 
-def _amount_for(records: list[Record], like: Record) -> str | None:
+def _chain_key(r: Record) -> tuple:
+    """What is being revised: a period of a concept, or a versioned instrument."""
+    return (r.subject, r.kind, r.value.get("concept"), r.value.get("period_end"),
+            r.value.get("span"), r.value.get("contract_id"))
+
+
+def _value_for(records: list[Record], like: Record) -> str | None:
+    """The revised content, whatever carries it for this kind — an amount for a
+    fact, the criterion text for a contract definition."""
     for r in records:
-        if (r.value.get("concept") == like.value.get("concept")
-                and r.value.get("period_end") == like.value.get("period_end")
-                and r.value.get("span") == like.value.get("span")):
-            return r.value.get("amount")
+        if _chain_key(r) != _chain_key(like):
+            continue
+        if r.value.get("amount") is not None:
+            return str(r.value["amount"])
+        crit = r.value.get("resolution_criterion")
+        if crit:
+            return f"v{crit.get('version')}"
     return None
 
 

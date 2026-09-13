@@ -41,7 +41,9 @@ class FixtureDataLayer:
         shuffled: bool = False,
         capabilities: CapabilitySet | None = None,
         shuffle_seed: int = 0,
+        subjects: tuple[str, ...] = (ds.ENT_A,),
     ) -> None:
+        self._subjects = subjects
         self._scenarios = scenarios
         self._shuffled = shuffled
         self._shuffle_seed = shuffle_seed
@@ -63,11 +65,14 @@ class FixtureDataLayer:
             return self.__dict__["_cache"]
         recs: list[Record] = []
         for name in self._scenarios:
-            recs.extend(ds.scenario_records(name, shuffled=self._shuffled,
-                                            shuffle_seed=self._shuffle_seed))
+            for subject in self._subjects:
+                recs.extend(ds.scenario_records(name, subject=subject,
+                                                shuffled=self._shuffled,
+                                                shuffle_seed=self._shuffle_seed))
         recs.extend(ds.fundamentals())
         recs.extend(ds.social_records())
         recs.extend(ds.echo_cluster())
+        recs.extend(ds.prediction_market_records())
         out = tuple(sorted(recs, key=lambda r: (r.knowable_at, r.id)))
         self.__dict__["_cache"] = out
         return out

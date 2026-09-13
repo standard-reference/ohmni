@@ -16,8 +16,10 @@ phase of the harness build.
 /harness      bus (sim-clock + lookahead guard), market graph, potency,
               independence, observation, mechanism, corroboration,
               invalidation, spark assembly, stage obligations
-/demo         first_spark.py — the whole path, end to end
-/tests        117 tests, fixture-only by design
+/demo         first_spark.py    — data layer to one spark
+              strategy_run.py   — spark to a generic trade type, strategy,
+                                  registered prediction and calibration ledger
+/tests        141 tests, fixture-only by design
 /docs         test-strategy.md — what is established, and what is not
 ```
 
@@ -50,6 +52,18 @@ Data layer → bus → graph → anomaly → observation → mechanism → corro
 invalidation → gate. The mechanism slot is filled from a declared template
 library rather than a model; the deterministic gates around it are the point.
 The obvious story is rejected on shape incommensurability, with the reason kept.
+
+## A strategy, not a trade
+
+```bash
+python demo/strategy_run.py
+```
+
+A promoted spark compiles to a **generic trade type** — conditions over basis
+fields and phenomena, with no entity id or date anywhere inside it, which is
+checked structurally. It fires across a universe defined by basis coverage rather
+than by name, registers a prediction per firing, and the calibration ledger
+scores the *form* rather than any instance.
 
 Start with [`docs/test-strategy.md`](docs/test-strategy.md), which is explicit
 about what the suite establishes and what it does not.

@@ -76,15 +76,18 @@ class OverwritingLayer(_Wrapper):
     caught_by = "restatement_as_of"
 
     def _compute(self) -> tuple[Record, ...]:
+        # A vendor with no revision concept does not null one field — it has no
+        # revisions anywhere, and every value is simply the latest one, stamped
+        # with the original availability date. Every timestamp is honest and the
+        # value is wrong, which is why the bus guard structurally cannot see it.
         out = []
         for r in super()._compute():
             if r.id == "fct_A_rev_q2_v0":
                 continue                                   # the original is gone
             if r.id == "fct_A_rev_q2_v1":
-                # today's value, served as if it were knowable at the first filing
                 r = Record(**{**r.__dict__, "id": "fct_A_rev_q2",
-                              "knowable_at": ds.ORIGINAL_FILED_AT, "revision": None})
-            out.append(r)
+                              "knowable_at": ds.ORIGINAL_FILED_AT})
+            out.append(Record(**{**r.__dict__, "revision": None}))
         return tuple(sorted(out, key=lambda r: (r.knowable_at, r.id)))
 
 
