@@ -71,9 +71,10 @@ def _throttle(host: str) -> None:
     _last_call[host] = time.monotonic()
 
 
-def fetch(url: str, *, absent: tuple[int, ...] = (), attempts: int = 7) -> FetchResult | None:
+def fetch(url: str, *, absent: tuple[int, ...] = (), attempts: int = 7,
+          store: bool = True) -> FetchResult | None:
     path = _key(url)
-    if path.exists():
+    if store and path.exists():
         return FetchResult(url, gzip.decompress(path.read_bytes()), from_cache=True)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -91,7 +92,13 @@ def fetch(url: str, *, absent: tuple[int, ...] = (), attempts: int = 7) -> Fetch
                 body = resp.read()
                 if resp.headers.get("Content-Encoding") == "gzip":
                     body = gzip.decompress(body)
-                path.write_bytes(gzip.compress(body))
+                if store:
+                    path.write_bytes(gzip.compress(body))
+                # `store=False` is for sources whose durable artifact is a
+                # declared REDUCTION rather than the response: keeping 26 MB of
+                # daily GKG to extract six counts would be 19 GB of raw for
+                # kilobytes of signal. The reduction is cached instead, keyed on
+                # the alias set that produced it.
                 return FetchResult(url, body, from_cache=False, status=resp.status)
         except urllib.error.HTTPError as e:
             if e.code in absent:

@@ -18,7 +18,8 @@ from typing import Iterator
 from contract import (Capability, CapabilitySet, HistoricalQueryRefused, Record,
                       SourceDeclaration, SourceRegistry)
 
-from .adapters import edgar, finra, gdelt, hackernews, prices, wikimedia
+from .adapters import (edgar, finra, gdelt, gdelt_bulk, hackernews, prices,
+                       wikimedia)
 from .entities import ENTITIES, INSTRUMENT_OF, Entity
 
 
@@ -31,7 +32,7 @@ class HistoricalDataLayer:
     def __init__(self, entities: tuple[Entity, ...] = ENTITIES,
                  start: datetime | None = None, end: datetime | None = None,
                  sources: tuple[str, ...] = ("edgar", "wikimedia", "prices",
-                                             "finra", "gdelt", "hackernews")):
+                                             "finra", "gdelt_bulk", "hackernews")):
         self.enabled = frozenset(sources)
         self.entities = entities
         self.start = start
@@ -40,8 +41,10 @@ class HistoricalDataLayer:
 
     # ── contract surface ────────────────────────────────────────────────────
     def sources(self) -> list[SourceDeclaration]:
-        return [m.declaration() for m in (edgar, wikimedia, prices, finra, gdelt,
-                                          hackernews)]
+        mods = {"edgar": edgar, "wikimedia": wikimedia, "prices": prices,
+                "finra": finra, "gdelt": gdelt, "gdelt_bulk": gdelt_bulk,
+                "hackernews": hackernews}
+        return [m.declaration() for k, m in mods.items() if k in self.enabled]
 
     def capabilities(self) -> CapabilitySet:
         full = set(CapabilitySet.full().supported)
@@ -89,6 +92,15 @@ class HistoricalDataLayer:
                 if progress:
                     progress(f"hn       {e.ticker}")
                 recs += hackernews.normalize(hackernews.fetch_raw(e, start, end), e)
+
+        if "gdelt_bulk" in self.enabled:
+            day = start
+            while day <= end:
+                if progress and day.day == 1:
+                    progress(f"gkg      {day:%Y-%m}")
+                recs += gdelt_bulk.normalize(gdelt_bulk.fetch_raw(day), day,
+                                             self.entities)
+                day += timedelta(days=1)
 
         day = start
         while day <= end:
