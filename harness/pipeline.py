@@ -133,8 +133,9 @@ def run(layer: DataLayer, basis, start: datetime, entity_id: str, subject: str,
     obs_art.attributes["invariant"] = invariant
     spark.fill("observation", obs_art.id, obs)
 
+    vol = horizon_volatility(events, subject, basis, policy)
     candidates = propose(obs, moved, set(invariant), phen, graph, entity_id,
-                         subject, basis.frame_span)
+                         subject, basis.frame_span, horizon_volatility=vol)
     log.candidates = candidates
     spark.rejected = [{"template": c.template.id, "reasons": c.reasons}
                       for c in candidates if not c.accepted]
@@ -205,3 +206,25 @@ def compile_strategy(log: SparkLog, basis, registry: SourceRegistry,
         support_scale=log.policy.support_scale)
     spec = build_strategy(f"strat_{tt.id}", [tt], universe, tt.regime_scope)
     return tt, spec
+
+
+def horizon_volatility(events, subject: str, basis, policy) -> float:
+    """The subject's own realised movement over one horizon, from data knowable at
+    spark time only.
+
+    Measured, never assumed, and never read from the future: it uses the same
+    events the observation saw. A claim bounded by this is scale-free — it says
+    "less than its own normal movement" rather than "less than a number I picked",
+    and it means the same thing for a utility and a semiconductor.
+    """
+    import statistics
+
+    rets = [float(e.value["close_return"]) for e in events
+            if e.kind == "price" and e.subject == subject
+            and "close_return" in e.value]
+    if len(rets) < 10:
+        return 0.0
+    daily = statistics.stdev(rets)
+    horizon_days = basis.frame_span.days * 2
+    trading_days = max(1.0, horizon_days * 5.0 / 7.0)
+    return daily * (trading_days ** 0.5)

@@ -18,6 +18,7 @@ class Capability(str, Enum):
     LINEAGE_COUPLING = "lineage_coupling"         # derived_from / couples_to
     NATIVE_CADENCE = "native_cadence"             # declared resolution per source
     CROSS_REFERENCE = "cross_reference"           # /relate, event spine
+    SURVIVORSHIP = "survivorship"                 # delisted/acquired/bankrupt included
 
 
 class Consequence(str, Enum):
@@ -71,6 +72,13 @@ DEGRADATION_TABLE: dict[Capability, Degradation] = {
         Consequence.DISABLE,
         "Basis resolution uncheckable",
         disables=("cadence_commensurability",),
+    ),
+    Capability.SURVIVORSHIP: Degradation(
+        Capability.SURVIVORSHIP,
+        Consequence.CONTAMINATED,
+        "Universe excludes delisted, acquired and bankrupt entities; every "
+        "backtest over it is inflated invisibly and the bias is undetectable "
+        "from inside the run",
     ),
     Capability.CROSS_REFERENCE: Degradation(
         Capability.CROSS_REFERENCE,

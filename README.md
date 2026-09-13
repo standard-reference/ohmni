@@ -19,7 +19,8 @@ phase of the harness build.
 /demo         first_spark.py    — data layer to one spark
               strategy_run.py   — spark to a generic trade type, strategy,
                                   registered prediction and calibration ledger
-/tests        141 tests, fixture-only by design
+/data_layer   real adapters: EDGAR, Wikimedia, FINRA, GDELT, prices
+/tests        144 fixture-only tests + 10 against the real adapters
 /docs         test-strategy.md — what is established, and what is not
 ```
 
@@ -64,6 +65,20 @@ fields and phenomena, with no entity id or date anywhere inside it, which is
 checked structurally. It fires across a universe defined by basis coverage rather
 than by name, registers a prediction per firing, and the calibration ledger
 scores the *form* rather than any instance.
+
+## Over real data
+
+```bash
+python demo/historical_run.py
+```
+
+Six entities, six months, five real sources, replayed as a time-lapsed stream.
+The real layer passes the same conformance suite as the fixture, and Intel's 2024
+restatement of H1 2022 revenue resolves correctly on both sides.
+
+The first run's strategy **lost 9 of 9 predictions** — and that is the most useful
+result so far. See [`docs/report-001-first-historical-run.md`](docs/report-001-first-historical-run.md)
+for what it exposed and where the build stands.
 
 Start with [`docs/test-strategy.md`](docs/test-strategy.md), which is explicit
 about what the suite establishes and what it does not.

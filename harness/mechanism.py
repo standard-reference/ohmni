@@ -46,7 +46,13 @@ class MechanismTemplate:
     #: Shapes the story is compatible with, on the field that triggered it.
     compatible_shapes: tuple[str, ...]
     sign: Sign
-    magnitude: float
+    #: In units of the SUBJECT'S OWN realised volatility over the horizon, never
+    #: an absolute return. A fixed bound is a claim about a number rather than
+    #: about the world: 2% over a fortnight is nearly certain for a utility and
+    #: nearly impossible for a semiconductor, so the same template would be
+    #: trivially true for one and absurd for the other. Resolved at spark time
+    #: from data knowable then.
+    magnitude_vol_multiple: float
     horizon_frames: int
     regime_scope: str
 
@@ -63,7 +69,7 @@ TEMPLATES: tuple[MechanismTemplate, ...] = (
         requires_invariant=(Phenomenon.EXCHANGE_ACTIVITY,),
         path=("entity", "phen:information_seeking", "phen:exchange_activity"),
         compatible_shapes=SUSTAINED,
-        sign=Sign.POSITIVE, magnitude=0.04, horizon_frames=2,
+        sign=Sign.POSITIVE, magnitude_vol_multiple=1.0, horizon_frames=2,
         regime_scope="any",
     ),
     MechanismTemplate(
@@ -78,7 +84,7 @@ TEMPLATES: tuple[MechanismTemplate, ...] = (
                             Phenomenon.OFF_EXCHANGE_ROUTING),
         path=("entity", "phen:information_seeking"),
         compatible_shapes=TRANSIENT,
-        sign=Sign.NEUTRAL, magnitude=0.02, horizon_frames=2,
+        sign=Sign.NEUTRAL, magnitude_vol_multiple=1.0, horizon_frames=2,
         regime_scope="any",
     ),
     MechanismTemplate(
@@ -89,7 +95,7 @@ TEMPLATES: tuple[MechanismTemplate, ...] = (
         requires_invariant=(),
         path=("entity", "phen:corporate_disclosure", "phen:exchange_activity"),
         compatible_shapes=("step",),
-        sign=Sign.POSITIVE, magnitude=0.05, horizon_frames=1,
+        sign=Sign.POSITIVE, magnitude_vol_multiple=1.5, horizon_frames=1,
         regime_scope="any",
     ),
     MechanismTemplate(
@@ -101,7 +107,7 @@ TEMPLATES: tuple[MechanismTemplate, ...] = (
         requires_invariant=(),
         path=("entity", "phen:exchange_activity"),
         compatible_shapes=SUSTAINED,
-        sign=Sign.POSITIVE, magnitude=0.03, horizon_frames=2,
+        sign=Sign.POSITIVE, magnitude_vol_multiple=1.0, horizon_frames=2,
         regime_scope="any",
     ),
 )
@@ -127,12 +133,17 @@ def propose(
     entity_id: str,
     subject: str,
     frame_span: timedelta,
+    horizon_volatility: float,
 ) -> list[Candidate]:
     """Every template is evaluated and every rejection keeps its reason.
 
     A verdict is a stored, queryable artifact, never an inline boolean — the
     rejected candidates are the record of what the data ruled out, which is the
     half a promotion-only log throws away.
+
+    `horizon_volatility` is the subject's own realised movement over one horizon,
+    measured from data knowable at spark time. Every magnitude is scaled by it, so
+    a claim means the same thing across entities and regimes.
     """
     moved_ph = {field_phenomena[f] for f in moved_fields if f in field_phenomena}
     inv_ph = {field_phenomena[f] for f in invariant_fields if f in field_phenomena}
@@ -183,10 +194,19 @@ def propose(
                 c.path_weights[edge.id] = round(edge.weight, 4)
 
         if c.accepted:
+            magnitude = round(tpl.magnitude_vol_multiple * horizon_volatility, 6)
+            if magnitude <= 0:
+                c.accepted = False
+                c.reasons.append("subject volatility unmeasurable at spark time")
+                out.append(c)
+                continue
             c.predicted = PredictedEffect(
-                subject=subject, sign=tpl.sign, magnitude=tpl.magnitude,
+                subject=subject, sign=tpl.sign, magnitude=magnitude,
                 horizon=horizon,
-                description=f"{tpl.story} (regime scope: {tpl.regime_scope})",
+                description=(f"{tpl.story} Bound is {tpl.magnitude_vol_multiple} x "
+                             f"the subject's own realised movement over "
+                             f"{horizon.days}d (= {magnitude:.4f}). "
+                             f"Regime scope: {tpl.regime_scope}."),
             )
         out.append(c)
 

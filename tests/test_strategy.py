@@ -16,10 +16,10 @@ from fixtures.dataset import (ENT_A, ENT_B, ENT_C, INSTRUMENT_OF, INSTRUMENTS_OF
                               REGISTRY, SCENARIOS, TAIL_WEEKS)
 from fixtures.layer import FixtureDataLayer
 from harness.bus import Bus
+from harness.observation import observe
 from harness.calibration import build_null_calibration
 from harness.claims import Sign
 from harness.execution import Decision, leak_check, run_universe
-from harness.observation import observe
 from harness.pipeline import RunPolicy, compile_strategy, run
 from harness.prediction import (Ledger, PredictionRegistered, RegistrationRefused,
                                 ResolutionRefused, claim_held,
@@ -312,3 +312,59 @@ def _prediction(pid, registered_at, resolve_by):
         registered_at=registered_at, resolve_by=resolve_by, basis_id=BASIS.id,
         embedding_space_version="e", concept_map_version="cm",
         layer_id="l", layer_version="1")
+
+
+# ── magnitudes are relative to the subject, never absolute ─────────────────
+
+def test_a_claim_is_bounded_by_the_subjects_own_movement(compiled):
+    """A fixed bound is a claim about a number rather than about the world.
+
+    This is the correction the calibration ledger forced: the first real run
+    predicted |move| <= 0.02 over a fortnight on semiconductors and lost 9 of 9.
+    The mechanism was not the problem; the constant was. A bound in units of the
+    subject's own realised movement means the same thing for a utility and for a
+    semiconductor, and it is exactly the over-narrow claim that specificity
+    rewards and only calibration can punish.
+    """
+    log, tt, _ = compiled
+    template = log.spark.principles["mechanism"].payload.template
+    assert hasattr(template, "magnitude_vol_multiple")
+    assert not hasattr(template, "magnitude"), "an absolute bound is back"
+    assert tt.direction["target_magnitude"] > 0
+
+
+def test_volatility_is_measured_from_what_was_knowable(policy):
+    """Never read from the future: the same events the observation saw."""
+    from harness.pipeline import horizon_volatility
+
+    spec = SCENARIOS["localised"]
+    bus = Bus(FixtureDataLayer(scenarios=("localised",), subjects=(ENT_A,)),
+              spec["start"])
+    events = tuple(bus.replay(spec["start"] + BASIS.frame_span * BASIS.frame_count))
+    vol = horizon_volatility(events, INSTRUMENTS_OF[ENT_A][0], BASIS, policy)
+    assert vol > 0
+    assert max(e.knowable_at for e in events) <= \
+        spec["start"] + BASIS.frame_span * BASIS.frame_count
+
+
+def test_an_unmeasurable_subject_produces_no_claim(policy):
+    """If the subject's own movement cannot be measured, the bound cannot be
+    stated, so the mechanism is rejected rather than given a default."""
+    from harness.mechanism import propose
+
+    spec = SCENARIOS["localised"]
+    bus = Bus(FixtureDataLayer(scenarios=("localised",), subjects=(ENT_A,)),
+              spec["start"])
+    events = tuple(bus.replay(spec["start"] + BASIS.frame_span * BASIS.frame_count))
+    obs = observe(events, BASIS, spec["start"], REGISTRY)
+    from harness.pipeline import field_phenomena
+    from harness.graph import MarketGraph
+
+    candidates = propose(obs, {"pageviews_rate": "spike_and_return"},
+                         {"price_return", "news_rate", "short_volume_share"},
+                         field_phenomena(BASIS, REGISTRY), MarketGraph(REGISTRY),
+                         ENT_A, INSTRUMENTS_OF[ENT_A][0], BASIS.frame_span,
+                         horizon_volatility=0.0)
+    assert not [c for c in candidates if c.accepted]
+    assert any("volatility unmeasurable" in r
+               for c in candidates for r in c.reasons)

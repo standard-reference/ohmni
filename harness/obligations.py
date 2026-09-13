@@ -62,13 +62,16 @@ STAGES: tuple[Stage, ...] = (
     Stage(
         "B4", "compile() -> threshold_rule.v1, execution, leak check",
         "Compiled entry matches source residue mechanically; leak check clean",
-        (Capability.KNOWABLE_AT, Capability.REVISION_CHAINS),
+        # A scored run needs survivorship-free prices with correct corporate
+        # actions; this is the stage where that stops being optional.
+        (Capability.KNOWABLE_AT, Capability.REVISION_CHAINS, Capability.SURVIVORSHIP),
     ),
     Stage(
         "B5", "Real vs null comparison — the actual first question",
         "Coherent strategies on real data, measurably fewer or weaker on nulls",
         (Capability.KNOWABLE_AT, Capability.TYPED_STATUS, Capability.REVISION_CHAINS,
-         Capability.LINEAGE_COUPLING, Capability.NATIVE_CADENCE),
+         Capability.LINEAGE_COUPLING, Capability.NATIVE_CADENCE,
+         Capability.SURVIVORSHIP),
     ),
 )
 
