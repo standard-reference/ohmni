@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from contract import (Aggregation, Dimension, Emission, Lineage, Phenomenon,
+from contract import (Aggregation, Dimension, Emission, HistoricalAccess,
+                      Lineage, Phenomenon,
                       Quantity, Record, Retrieval, SourceDeclaration, Status,
                       Survivorship, TemporalType, TruthRole)
 
@@ -34,6 +35,8 @@ def declaration() -> SourceDeclaration:
         retrieval=Retrieval.AS_OF,
         record_survivorship=Survivorship.COMPLETE,
         backfilled=False,
+        historical_access=HistoricalAccess.BULK,
+        bulk_endpoint="https://dumps.wikimedia.org/other/pageviews/",
         emits=(Emission(
             kind="pageviews", value_field="views", native_cadence="P1D",
             publication_lag=PUBLICATION_LAG,

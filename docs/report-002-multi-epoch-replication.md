@@ -154,3 +154,85 @@ Not a lower bar. Three things that do not yet exist:
 python demo/multi_epoch_run.py      # this report
 python -m pytest tests/ -q          # 158, fixture-only
 ```
+
+---
+
+## Addendum — what avoids the GDELT problem
+
+Written after the run, because the failure decomposes into four problems and only
+one of them is about GDELT.
+
+### 1. Retrieval *feasibility* was never declared
+
+`retrieval: as_of` says a historical query returns historical values. It says
+nothing about whether the history can be **fetched at scale**, and that is the
+question that actually bit. Doc 03's diligence checklist asks it — "bulk export
+available, or per-request only?" — but it never reached `SourceDeclaration`, so
+it was neither machine-checkable nor in the manifest.
+
+GDELT has **both** paths. Verified directly:
+
+```
+https://api.gdeltproject.org/api/v2/doc/doc?...     429, IP-level, persists for minutes
+https://data.gdeltproject.org/gdeltv2/masterfilelist.txt   206, range requests, no throttle
+https://data.gdeltproject.org/gkg/20190401.gkg.csv.zip     206, 39.3 MB/day
+```
+
+The archive is wide open. I built against the metered path and nothing in the
+contract could tell me. `HistoricalAccess` now declares it — `bulk`, `metered`,
+`rate_limited`, `record_only` — with the bulk endpoint recorded where one exists,
+and `check_backfillable()` refuses a multi-epoch basis resting on a source that
+cannot supply every epoch:
+
+```
+a multi-epoch basis cannot rest on sources whose history cannot be fetched at
+scale; these would be present in some epochs and absent in others:
+news_rate via gdelt.news (rate_limited) — a bulk archive exists at
+https://data.gdeltproject.org/gdeltv2/masterfilelist.txt
+```
+
+That fires **before a single request**, rather than three hours into a fetch when
+the epochs already have different bases.
+
+### 2. The serious one: a missing source silently changed the basis
+
+When GDELT went away, the field became `not_representable`, the observation
+carried on, and the epochs ended up observed over **different bases**. I caught
+that by hand and wrote it into this report. Nothing in the system caught it.
+
+§12 is explicit that two sparks are comparable when they share a basis. That was
+enforced within a run and not across epochs — which is precisely where a source
+outage turns into an unnoticed comparison of two different things.
+
+`harness/coverage.py` closes it. `BasisRealization` records what each epoch could
+actually express and how well; `compare()` returns `same_basis` / `partial` /
+`incommensurable`; and `replicated_cores()` now **refuses** a core whose inputs
+were not expressible in every epoch rather than crediting it.
+
+The distinction that matters: *did not replicate* and *was never testable* are
+different findings, and collapsing them turns a source outage into evidence.
+
+A coverage floor is required with no default — a field present in every epoch but
+populated in a fifth of one epoch's frames is not really shared, and a default
+would hide exactly the partial outage this exists to catch.
+
+### 3. Source availability is a fact about the run
+
+`RunManifest.record_source()` and `unavailable_sources`, folded into
+`event_set_hash` so a run missing a source cannot hash the same as one that had
+it.
+
+### 4. The recorder, for anything with no archive
+
+GDELT is recoverable from bulk, so it was never the urgent case. Bluesky,
+Farcaster and StockTwits have no purchasable archive at any price — that remains
+the only item in either track with a clock on it, and it is still not built.
+
+### What this does not fix
+
+The bulk path is open but **volumetrically expensive**: 39 MB/day of GKG is
+~7 GB per six-month epoch, against a ~30 GB allowance, for what amounts to six
+daily mention counts. The lighter `gkgcounts` variant is 4.7 MB/day (~850 MB per
+epoch), which is tractable. Either way, an adapter against the bulk archive is
+not yet written — what exists is the machinery that would have stopped the run
+before it produced an uncheckable comparison.

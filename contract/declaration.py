@@ -16,6 +16,29 @@ class Retrieval(str, Enum):
     SNAPSHOT = "snapshot"    # a historical query returns the PRESENT value
 
 
+class HistoricalAccess(str, Enum):
+    """Whether history can be FETCHED at scale — a different question from
+    whether the values are honest.
+
+    `retrieval` asks "does a historical query return historical values". This
+    asks "can I get the history at all". A source can be impeccably
+    point-in-time and still be unusable for multi-epoch work because its only
+    access path is metered or rate-limited, and discovering that three hours into
+    a fetch is too late to redesign a basis around it.
+    """
+
+    BULK = "bulk"                  # an archive that can be pulled wholesale
+    METERED = "metered"            # per-request pricing; backfill cost is real
+    RATE_LIMITED = "rate_limited"  # free but throttled below backfill speed
+    RECORD_ONLY = "record_only"    # no archive at any price; record forward or lose it
+
+    @property
+    def supports_backfill(self) -> bool:
+        """Only bulk access supports a multi-epoch historical pull. Metered is a
+        budget question; rate-limited and record-only are hard stops."""
+        return self is HistoricalAccess.BULK
+
+
 class Survivorship(str, Enum):
     COMPLETE = "complete"
     DELETIONS_UNRECOVERABLE = "deletions_unrecoverable"
@@ -198,6 +221,11 @@ class SourceDeclaration:
     retrieval: Retrieval
     record_survivorship: Survivorship
     backfilled: bool
+    #: How history is obtained. Required, because a basis built on a source that
+    #: cannot be backfilled is a basis that will differ between epochs — and a
+    #: cross-epoch claim over differing bases is not a claim.
+    historical_access: HistoricalAccess = HistoricalAccess.BULK
+    bulk_endpoint: str | None = None   # where the archive is, if there is one
     measurement_type: MeasurementType = MeasurementType.MEASURED
     emits: tuple[Emission, ...] = ()
     couples_to: tuple[Coupling, ...] = ()

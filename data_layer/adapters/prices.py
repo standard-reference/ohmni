@@ -19,7 +19,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from contract import (Aggregation, Dimension, Emission, Lineage, Phenomenon,
+from contract import (Aggregation, Dimension, Emission, HistoricalAccess,
+                      Lineage, Phenomenon,
                       Quantity, Record, Retrieval, SourceDeclaration, Status,
                       Survivorship, TemporalType, TruthRole)
 
@@ -44,6 +45,8 @@ def declaration() -> SourceDeclaration:
         # unrecoverable, which is the record-level form of survivorship bias.
         record_survivorship=Survivorship.DELETIONS_UNRECOVERABLE,
         backfilled=True,
+        historical_access=HistoricalAccess.METERED,
+        bulk_endpoint=None,
         emits=(Emission(
             kind="price", value_field="close_return", native_cadence="P1D",
             publication_lag=PUBLICATION_LAG, subject_type="instrument",

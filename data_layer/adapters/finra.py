@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from contract import (Aggregation, Dimension, Emission, Lineage, Phenomenon,
+from contract import (Aggregation, Dimension, Emission, HistoricalAccess,
+                      Lineage, Phenomenon,
                       Quantity, Record, Retrieval, SourceDeclaration, Status,
                       Survivorship, TemporalType, TruthRole)
 
@@ -32,6 +33,8 @@ def declaration() -> SourceDeclaration:
         retrieval=Retrieval.AS_OF,
         record_survivorship=Survivorship.COMPLETE,
         backfilled=False,
+        historical_access=HistoricalAccess.BULK,
+        bulk_endpoint="https://cdn.finra.org/equity/regsho/daily/",
         emits=(Emission(
             kind="short_volume", value_field="short_share", native_cadence="P1D",
             publication_lag=PUBLICATION_LAG, subject_type="instrument",

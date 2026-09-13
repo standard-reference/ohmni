@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .coverage import BasisRealization, Commensurability, compare
 from .epochs import Epoch, EpochSet
 from .strategy import TradeType, TradeTypeCore
 
@@ -41,6 +42,10 @@ class Derivation:
 class Replication:
     core: TradeTypeCore
     derivations: list[Derivation] = field(default_factory=list)
+    #: Set when a core cleared the epoch count but its inputs were not
+    #: expressible everywhere. Distinct from "did not replicate": one means the
+    #: form failed to recur, the other means it was never testable.
+    refused_reason: str = ""
 
     @property
     def epochs(self) -> set[str]:
@@ -75,14 +80,55 @@ def group_by_core(derivations: list[Derivation]) -> list[Replication]:
     return sorted(out.values(), key=lambda r: (-len(r.epochs), r.core.id))
 
 
-def replicated_cores(derivations: list[Derivation], epochs: EpochSet) -> list[Replication]:
+class IncommensurableEpochs(Exception):
+    """Raised when a replication claim is attempted over epochs that were not
+    observed on the same basis. Not a warning: 'the form recurred' and 'the form
+    recurred in the epochs where its inputs happened to exist' are different
+    claims, and only one of them is evidence."""
+
+
+def replicated_cores(derivations: list[Derivation], epochs: EpochSet,
+                     realizations: list[BasisRealization] | None = None,
+                     min_coverage: float | None = None) -> list[Replication]:
     """Only cores derived in at least `min_replications` distinct DERIVATION
-    epochs. Holdout derivations are excluded even if they happen — a core that
-    only appears in the holdout was not proposed, it was discovered while scoring.
+    epochs, over a basis those epochs actually shared.
+
+    Holdout derivations are excluded even if they happen — a core that only
+    appears in the holdout was not proposed, it was discovered while scoring.
+
+    When `realizations` are supplied the basis is checked first, and a core whose
+    inputs were not expressible in every epoch is refused rather than credited.
+    A source outage in one epoch would otherwise turn into a silent claim that the
+    form "did not replicate there", when in truth it was never testable there.
     """
     derivation_ids = {e.id for e in epochs.derivation()}
     eligible = [d for d in derivations if d.epoch_id in derivation_ids]
-    return [r for r in group_by_core(eligible) if r.replicated(epochs.min_replications)]
+    candidates = [r for r in group_by_core(eligible)
+                  if r.replicated(epochs.min_replications)]
+    if realizations is None:
+        return candidates
+
+    if min_coverage is None:
+        raise ValueError("min_coverage is required when checking basis "
+                         "commensurability; a default would hide a partial outage")
+    verdict = compare([r for r in realizations if r.epoch_id in derivation_ids],
+                      min_coverage)
+    if verdict.verdict == "incommensurable":
+        raise IncommensurableEpochs(
+            f"{verdict.reason}; fields present in only some epochs: "
+            f"{ {k: sorted(v) for k, v in verdict.only_in.items()} }")
+
+    kept = []
+    for rep in candidates:
+        needed = {rep.core.trigger_phenomenon, *rep.core.required_invariant_phenomena}
+        missing = needed - set(verdict.shared_phenomena or verdict.shared)
+        if missing:
+            rep.refused_reason = (
+                f"inputs {sorted(missing)} were not expressible in every epoch, so "
+                "this core was never testable in all of them")
+            continue
+        kept.append(rep)
+    return kept
 
 
 @dataclass

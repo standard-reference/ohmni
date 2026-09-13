@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from contract import (Aggregation, Dimension, Emission, Lineage, Phenomenon,
+from contract import (Aggregation, Dimension, Emission, HistoricalAccess,
+                      Lineage, Phenomenon,
                       Quantity, Record, Retrieval, SourceDeclaration, Status,
                       Survivorship, TemporalType, TruthRole)
 
@@ -33,6 +34,15 @@ def declaration() -> SourceDeclaration:
         retrieval=Retrieval.AS_OF,
         record_survivorship=Survivorship.COMPLETE,
         backfilled=False,
+        # The finding that motivated this field. GDELT's query API is free and
+        # rate-limits below any backfill speed — after a burst it returns 429 at
+        # the IP level for minutes, which makes a multi-epoch pull impossible
+        # through it. The BULK archive at the endpoint below is completely open
+        # (range requests, no throttle) and is the path a historical consumer
+        # should take. Declaring RATE_LIMITED means a basis built on this source
+        # fails at declaration time rather than three hours into a fetch.
+        historical_access=HistoricalAccess.RATE_LIMITED,
+        bulk_endpoint="https://data.gdeltproject.org/gdeltv2/masterfilelist.txt",
         emits=(Emission(
             kind="news", value_field="articles", native_cadence="P1D",
             publication_lag=PUBLICATION_LAG,

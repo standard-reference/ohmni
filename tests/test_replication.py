@@ -154,3 +154,165 @@ def test_distinct_cores_are_grouped_separately():
     groups = group_by_core([derivation("2019H1", "A"),
                             derivation("2021H1", "B", core("other"))])
     assert len(groups) == 2
+
+
+# ── the GDELT problem: a source outage must not become a silent basis change ──
+
+def _realization(epoch_id, fields, missing=None, coverage=1.0, basis_id="b"):
+    from harness.coverage import BasisRealization
+
+    return BasisRealization(basis_id=basis_id, epoch_id=epoch_id,
+                            representable=frozenset(fields),
+                            not_representable=missing or {},
+                            coverage={f: coverage for f in fields})
+
+
+def test_epochs_missing_a_field_are_not_the_same_basis():
+    """The failure that motivated this module. GDELT rate-limited out of three
+    epochs of four, so `editorial_publication` existed in one — and the system
+    happily compared them. Two sparks are comparable when they share a basis;
+    that was enforced within a run and not across epochs."""
+    from harness.coverage import compare
+
+    got = compare([_realization("2019H1", ["pv", "px"]),
+                   _realization("2023H1", ["pv", "px", "news"])],
+                  min_coverage=0.8)
+    assert got.verdict == "partial"
+    assert got.shared == {"pv", "px"}
+    assert got.only_in == {"2023H1": {"news"}}
+    assert not got.comparable
+
+
+def test_identical_bases_compare_as_the_same_basis():
+    from harness.coverage import compare
+
+    got = compare([_realization("a", ["pv", "px"]), _realization("b", ["pv", "px"])],
+                  min_coverage=0.8)
+    assert got.verdict == "same_basis" and got.comparable
+
+
+def test_no_overlap_is_incommensurable_not_merely_different():
+    """'Could not compare' and 'compared and found different' must never collapse
+    into one answer — a consumer does something different in each case."""
+    from harness.coverage import compare
+
+    got = compare([_realization("a", ["pv"]), _realization("b", ["news"])],
+                  min_coverage=0.8)
+    assert got.verdict == "incommensurable"
+
+
+def test_a_thinly_covered_field_does_not_count_as_shared():
+    """Present in every epoch but populated in a fifth of one epoch's frames is
+    not really shared, and a partial outage is exactly what this catches."""
+    from harness.coverage import compare
+
+    thin = _realization("b", ["pv", "px"])
+    object.__setattr__(thin, "coverage", {"pv": 1.0, "px": 0.2})
+    got = compare([_realization("a", ["pv", "px"]), thin], min_coverage=0.8)
+    assert got.shared == {"pv"}
+    assert got.verdict == "partial"
+
+
+def test_min_coverage_has_no_default():
+    """A default would hide the partial outage this exists to catch."""
+    import inspect
+
+    from harness.coverage import compare
+
+    assert inspect.signature(compare).parameters["min_coverage"].default \
+        is inspect.Parameter.empty
+
+
+def test_a_core_untestable_in_some_epochs_is_refused_not_credited():
+    """Distinct from 'did not replicate': one means the form failed to recur, the
+    other means it was never testable. Crediting the second as the first is how a
+    source outage turns into evidence."""
+    from harness.replication import replicated_cores
+
+    es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
+                          half_year(2023, 1, "c", holdout=True)),
+                  min_replications=2)
+    needs_news = core()
+    object.__setattr__(needs_news, "required_invariant_phenomena",
+                       ("exchange_activity", "editorial_publication"))
+    derivations = [derivation("2019H1", "A", needs_news),
+                   derivation("2021H1", "B", needs_news)]
+    realizations = [_realization("2019H1", ["information_seeking", "exchange_activity"]),
+                    _realization("2021H1", ["information_seeking", "exchange_activity",
+                                            "editorial_publication"])]
+    got = replicated_cores(derivations, es, realizations, min_coverage=0.8)
+    assert got == []
+
+
+def test_checking_commensurability_requires_a_coverage_floor():
+    from harness.replication import replicated_cores
+
+    es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b")),
+                  min_replications=2)
+    with pytest.raises(ValueError, match="min_coverage is required"):
+        replicated_cores([derivation("2019H1", "A")], es,
+                         [_realization("2019H1", ["x"])], min_coverage=None)
+
+
+# ── retrieval feasibility, declared before a single request ─────────────────
+
+def test_a_rate_limited_source_cannot_carry_a_multi_epoch_basis():
+    """`retrieval` says whether a historical query returns historical values.
+    This says whether the history can be FETCHED at all — a different question,
+    and the one that was never asked."""
+    from datetime import timedelta
+
+    from contract import HistoricalAccess, SourceRegistry
+    from harness.coverage import UnbackfillableSource, check_backfillable
+    from harness.observation import Basis, BasisField
+    from fixtures.dataset import SOURCES
+
+    throttled = tuple(
+        type(d)(**{**d.__dict__, "historical_access": HistoricalAccess.RATE_LIMITED})
+        if d.source_id == "gdelt.news" else d for d in SOURCES)
+    reg = SourceRegistry(throttled)
+    basis = Basis(id="b", resolution="P7D", frame_count=8,
+                  frame_span=timedelta(days=7),
+                  fields=(BasisField("news_rate", "gdelt.news", "news"),))
+    with pytest.raises(UnbackfillableSource, match="rate_limited"):
+        check_backfillable(basis, reg)
+
+
+def test_a_bulk_source_passes_the_same_check():
+    from datetime import timedelta
+
+    from contract import SourceRegistry
+    from harness.coverage import check_backfillable
+    from harness.observation import Basis, BasisField
+    from fixtures.dataset import SOURCES
+
+    basis = Basis(id="b", resolution="P7D", frame_count=8,
+                  frame_span=timedelta(days=7),
+                  fields=(BasisField("pv", "wikimedia.pageviews", "pageviews"),))
+    check_backfillable(basis, SourceRegistry(SOURCES))     # must not raise
+
+
+def test_only_bulk_access_supports_backfill():
+    from contract import HistoricalAccess
+
+    assert HistoricalAccess.BULK.supports_backfill
+    for a in (HistoricalAccess.METERED, HistoricalAccess.RATE_LIMITED,
+              HistoricalAccess.RECORD_ONLY):
+        assert not a.supports_backfill
+
+
+# ── an unavailable source is a fact about the run ──────────────────────────
+
+def test_the_manifest_records_which_sources_were_unavailable():
+    """'GDELT unavailable for 2019H1' belongs next to the capability
+    degradations, not in prose somebody writes afterwards."""
+    from fixtures.layer import FixtureDataLayer
+    from harness.manifest import RunManifest
+
+    m = RunManifest.for_layer(FixtureDataLayer())
+    before = m.event_set_hash()
+    m.record_source("gdelt.news", "rate_limited: 429 after 3 attempts")
+    m.record_source("wikimedia.pageviews", "available")
+    assert m.unavailable_sources == ("gdelt.news",)
+    assert m.event_set_hash() != before, (
+        "a run missing a source must not hash the same as one that had it")

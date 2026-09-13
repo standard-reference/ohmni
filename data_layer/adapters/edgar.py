@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime, time, timezone
 
-from contract import (Aggregation, Dimension, Emission, Lineage, Phenomenon,
+from contract import (Aggregation, Dimension, Emission, HistoricalAccess,
+                      Lineage, Phenomenon,
                       Quantity, Record, Retrieval, Revision, SourceDeclaration,
                       Status, Survivorship, TemporalType, TruthRole)
 
@@ -46,6 +47,8 @@ def declaration() -> SourceDeclaration:
         retrieval=Retrieval.AS_OF,
         record_survivorship=Survivorship.COMPLETE,
         backfilled=False,
+        historical_access=HistoricalAccess.BULK,
+        bulk_endpoint="https://www.sec.gov/Archives/edgar/full-index/",
         emits=(Emission(
             kind="fundamental", value_field="amount", native_cadence="P3M",
             carries_period=True,

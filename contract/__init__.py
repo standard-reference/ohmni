@@ -12,6 +12,7 @@ from .declaration import (
     Coupling,
     Dimension,
     Emission,
+    HistoricalAccess,
     MeasurementType,
     PluginTrust,
     Quantity,
@@ -32,7 +33,7 @@ from .record import Lineage, Record, Revision, Status
 __all__ = [
     "Aggregation", "AmbiguousKind", "CONTRACT_VERSION", "Capability", "CapabilitySet",
     "Consequence", "Coupling", "DEGRADATION_TABLE", "DataLayer", "Degradation",
-    "Dimension", "Emission", "HistoricalQueryRefused", "Lineage", "MeasurementType",
+    "Dimension", "Emission", "HistoricalAccess", "HistoricalQueryRefused", "Lineage", "MeasurementType",
     "NON_NEGOTIABLE", "PluginTrust", "Quantity", "Record", "Retrieval", "Revision",
     "SourceDeclaration", "SourceRegistry", "Status", "Survivorship", "TemporalType",
     "cadence_rank", "coarsest", "Phenomenon", "ROLE_PRESUPPOSES_PRIOR", "TruthRole",

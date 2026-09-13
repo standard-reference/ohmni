@@ -41,6 +41,10 @@ class RunManifest:
     disabled_features: frozenset[str] = frozenset()
     degradation_notes: list[str] = field(default_factory=list)
     is_null_run: bool = False
+    #: Per-source retrieval outcome for this run. A source that was unavailable
+    #: is a fact ABOUT the run and belongs next to the capability degradations —
+    #: not in prose somebody wrote afterwards.
+    source_availability: dict[str, str] = field(default_factory=dict)
     event_count: int = 0
     _digest: str = ""
 
@@ -77,6 +81,17 @@ class RunManifest:
     def feature_enabled(self, name: str) -> bool:
         return name not in self.disabled_features
 
+    def record_source(self, source_id: str, outcome: str) -> None:
+        """`outcome` is "available", or a reason it was not. An absent source
+        silently changes the realized basis, which is how a source outage in one
+        epoch becomes an unnoticed cross-epoch comparison over different bases."""
+        self.source_availability[source_id] = outcome
+
+    @property
+    def unavailable_sources(self) -> tuple[str, ...]:
+        return tuple(sorted(k for k, v in self.source_availability.items()
+                            if v != "available"))
+
     def event_set_hash(self) -> str:
         payload = json.dumps({
             "layer_id": self.layer_id, "layer_version": self.layer_version,
@@ -85,6 +100,7 @@ class RunManifest:
             "concept_map_version": self.concept_map_version,
             "cluster_version": self.cluster_version,
             "capabilities": sorted(c.value for c in self.capabilities),
+            "unavailable_sources": list(self.unavailable_sources),
             "digest": self._digest, "event_count": self.event_count,
         }, sort_keys=True)
         return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
