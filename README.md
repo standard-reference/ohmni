@@ -20,7 +20,7 @@ phase of the harness build.
               strategy_run.py   — spark to a generic trade type, strategy,
                                   registered prediction and calibration ledger
 /data_layer   real adapters: EDGAR, Wikimedia, FINRA, GDELT, prices
-/tests        144 fixture-only tests + 10 against the real adapters
+/tests        158 fixture-only tests + 10 against the real adapters
 /docs         test-strategy.md — what is established, and what is not
 ```
 
@@ -76,9 +76,23 @@ Six entities, six months, five real sources, replayed as a time-lapsed stream.
 The real layer passes the same conformance suite as the fixture, and Intel's 2024
 restatement of H1 2022 revenue resolves correctly on both sides.
 
-The first run's strategy **lost 9 of 9 predictions** — and that is the most useful
-result so far. See [`docs/report-001-first-historical-run.md`](docs/report-001-first-historical-run.md)
-for what it exposed and where the build stands.
+The first run's strategy **lost 9 of 9 predictions** —
+[`report 001`](docs/report-001-first-historical-run.md).
+
+## Across epochs
+
+```bash
+python demo/multi_epoch_run.py
+```
+
+A form derived from one window is a fit to that window even with no entity id in
+it, because the *parameters* carry the window. So parameters are rules resolved
+against whichever window the form is applied in, and a core is promoted only when
+the same invariant identity is independently derived in several disjoint epochs.
+
+Run over four epochs, **nothing replicated** — the form that looked like a
+strategy in one period appears in one epoch of three.
+[`report 002`](docs/report-002-multi-epoch-replication.md).
 
 Start with [`docs/test-strategy.md`](docs/test-strategy.md), which is explicit
 about what the suite establishes and what it does not.
