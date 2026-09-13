@@ -18,7 +18,7 @@ from typing import Iterator
 from contract import (Capability, CapabilitySet, HistoricalQueryRefused, Record,
                       SourceDeclaration, SourceRegistry)
 
-from .adapters import edgar, finra, gdelt, prices, wikimedia
+from .adapters import edgar, finra, gdelt, hackernews, prices, wikimedia
 from .entities import ENTITIES, INSTRUMENT_OF, Entity
 
 
@@ -29,7 +29,10 @@ class HistoricalDataLayer:
     cluster_version = None          # no event spine yet; declared, not implied
 
     def __init__(self, entities: tuple[Entity, ...] = ENTITIES,
-                 start: datetime | None = None, end: datetime | None = None):
+                 start: datetime | None = None, end: datetime | None = None,
+                 sources: tuple[str, ...] = ("edgar", "wikimedia", "prices",
+                                             "finra", "gdelt", "hackernews")):
+        self.enabled = frozenset(sources)
         self.entities = entities
         self.start = start
         self.end = end
@@ -37,7 +40,8 @@ class HistoricalDataLayer:
 
     # ── contract surface ────────────────────────────────────────────────────
     def sources(self) -> list[SourceDeclaration]:
-        return [m.declaration() for m in (edgar, wikimedia, prices, finra, gdelt)]
+        return [m.declaration() for m in (edgar, wikimedia, prices, finra, gdelt,
+                                          hackernews)]
 
     def capabilities(self) -> CapabilitySet:
         full = set(CapabilitySet.full().supported)
@@ -76,9 +80,15 @@ class HistoricalDataLayer:
                 prices.fetch_raw(e, start - timedelta(days=7),
                                  end + self.RESOLUTION_TAIL), e)
 
-            if progress:
-                progress(f"gdelt    {e.ticker}")
-            recs += gdelt.normalize(gdelt.fetch_raw(e, start, end), e)
+            if "gdelt" in self.enabled:
+                if progress:
+                    progress(f"gdelt    {e.ticker}")
+                recs += gdelt.normalize(gdelt.fetch_raw(e, start, end), e)
+
+            if "hackernews" in self.enabled:
+                if progress:
+                    progress(f"hn       {e.ticker}")
+                recs += hackernews.normalize(hackernews.fetch_raw(e, start, end), e)
 
         day = start
         while day <= end:

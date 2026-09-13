@@ -185,12 +185,12 @@ def run(layer: DataLayer, basis, start: datetime, entity_id: str, subject: str,
 # ── from spark to strategy ──────────────────────────────────────────────────
 
 def compile_strategy(log: SparkLog, basis, registry: SourceRegistry,
-                     universe: list[str]):
-    """A spark becomes a generic trade type, and trade types compose a strategy.
+                     universe: list[str], ctx):
+    """A spark becomes a generic core, resolved against the window it came from.
 
-    Nothing about a specific entity or date crosses this boundary: the trade type
-    names basis fields and phenomena, and the universe is a coverage requirement
-    rather than a list of names.
+    Nothing about a specific entity or date crosses this boundary, and — since the
+    first historical run — no NUMBER does either: the core carries rules, and
+    `ctx` is what turns them into values inside one window.
     """
     from .strategy import build_strategy, compile_trade_type
 
@@ -201,7 +201,7 @@ def compile_strategy(log: SparkLog, basis, registry: SourceRegistry,
         return None, None
     tt = compile_trade_type(
         log.spark, log.observation, log.moved, log.invariant,
-        field_phenomena(basis, registry), log.support, basis,
+        field_phenomena(basis, registry), log.support, basis, ctx,
         degraded_multiplier=log.policy.degraded_multiplier,
         support_scale=log.policy.support_scale)
     spec = build_strategy(f"strat_{tt.id}", [tt], universe, tt.regime_scope)

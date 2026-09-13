@@ -1,5 +1,20 @@
 """Trade types and strategies — generic forms, never a single disposable thesis.
 
+A trade type has two halves, and keeping them apart is the whole design:
+
+- **`TradeTypeCore`** — the invariant identity. The mechanism, the phenomenon that
+  must move, the shape it must move in, the phenomena that must hold still, the
+  sign and the horizon. This is what makes a form in 2019 and a form in 2023 the
+  SAME form rather than two coincidences, and it is the only thing that crosses an
+  epoch boundary.
+- **Parameter rules** — recipes, not numbers. "Separation above this window's own
+  95th-percentile null" resolves differently in every epoch and means the same
+  thing in all of them. A stored threshold would carry its derivation window with
+  it into periods that never justified it.
+
+Resolving the rules against a window is the "modified slightly to accommodate the
+specific window" step, and it is done from data knowable inside that window.
+
 The distinction this module exists to enforce:
 
 - A **single-trade thesis** is "buy this name on this date because this spiked".
@@ -29,6 +44,7 @@ from dataclasses import asdict, dataclass, field
 from contract import Phenomenon
 
 from .claims import Sign
+from .parameters import Rule, WindowContext, null_quantile, subject_volatility
 from .registry import KindRegistration, Registry
 
 
@@ -55,11 +71,57 @@ UNCOMPILABLE_SHAPES = {
 
 
 @dataclass(frozen=True)
+class TradeTypeCore:
+    """The invariant identity of a form. Two derivations in different epochs are
+    the same form exactly when these match.
+
+    Deliberately holds no numbers that came from data: every quantity here is
+    either a declared structural choice (which phenomena, which shape) or a rule
+    for deriving a number inside whatever window the form is applied to.
+    """
+
+    mechanism_template: str
+    trigger_phenomenon: str
+    required_shape: str
+    required_invariant_phenomena: tuple[str, ...]
+    sign: str
+    horizon_frames: int
+    separation_rule: Rule
+    magnitude_rule: Rule
+    regime_scope: str
+
+    @property
+    def id(self) -> str:
+        return f"core_{self.mechanism_template}"
+
+    def identity(self) -> tuple:
+        """What must match for two derivations to count as a replication rather
+        than two unrelated findings."""
+        return (self.mechanism_template, self.trigger_phenomenon, self.required_shape,
+                tuple(sorted(self.required_invariant_phenomena)), self.sign,
+                self.horizon_frames, self.separation_rule.kind,
+                self.magnitude_rule.kind)
+
+    def describe(self) -> str:
+        return (f"{self.mechanism_template}: {self.trigger_phenomenon} moves "
+                f"{self.required_shape} while "
+                f"{', '.join(sorted(self.required_invariant_phenomena))} hold; "
+                f"{self.sign} over {self.horizon_frames} frames; "
+                f"separation={self.separation_rule.describe()}, "
+                f"magnitude={self.magnitude_rule.describe()}")
+
+
+@dataclass(frozen=True)
 class TradeType:
-    """Entity-agnostic by construction. If an entity id or a date appears in
-    here, the form has collapsed into an instance — `is_generic()` checks it."""
+    """A core, resolved against one window.
+
+    Entity-agnostic by construction. If an entity id or a date appears in here,
+    the form has collapsed into an instance — `is_generic()` checks it.
+    """
 
     id: str
+    core: TradeTypeCore
+    resolved_in: str                  # the epoch whose data supplied the numbers
     spark_ref: str
     stance: str                       # "long" | "short" | "abstain"
     entry: dict
@@ -73,7 +135,8 @@ class TradeType:
     def is_generic(self, forbidden_literals: tuple[str, ...]) -> tuple[bool, list[str]]:
         """No entity id, instrument id or date may appear anywhere in the form."""
         blob = json.dumps({k: v for k, v in asdict(self).items()
-                           if k not in ("id", "spark_ref", "provenance")})
+                           if k not in ("id", "spark_ref", "provenance",
+                                        "resolved_in", "core")}, default=str)
         found = [lit for lit in forbidden_literals if lit and lit in blob]
         return (not found), found
 
@@ -96,48 +159,71 @@ class StrategyKind(KindRegistration):
 Strategies: Registry[StrategyKind] = Registry("StrategyKinds")
 
 
-def compile_trade_type(spark, observation, moved: dict, invariant: list[str],
-                       field_phenomena: dict, support, basis,
-                       degraded_multiplier: float, support_scale: float) -> TradeType:
-    """Mechanical mapping from the spark's own principles.
+def core_from(spark, field_phenomena) -> TradeTypeCore:
+    """The invariant half, read off the mechanism template.
 
-    `degraded_multiplier` and `support_scale` are required. Hysteresis converts
-    false-kills into slow-kills, so a genuinely dead thesis bleeds for N windows —
-    that trade is only acceptable if `degraded` cuts size aggressively rather than
-    cosmetically, and the multiplier is the number that decides which.
+    No numbers from this window cross into it — only rules. That is what lets the
+    same core be derived independently in another epoch and recognised as the
+    same form.
     """
     mech = spark.principles["mechanism"].payload
-    predicted = mech.predicted
-    trigger_field = mech.trigger_field
-    shape = mech.trigger_shape
+    tpl = mech.template
+    return TradeTypeCore(
+        mechanism_template=tpl.id,
+        trigger_phenomenon=field_phenomena[mech.trigger_field].value,
+        required_shape=mech.trigger_shape,
+        required_invariant_phenomena=tuple(sorted(
+            p.value for p in tpl.requires_invariant)),
+        sign=tpl.sign.value,
+        horizon_frames=tpl.horizon_frames,
+        # Recipes, not values. Both resolve against whatever window the form is
+        # applied in, never against the window it was derived in.
+        separation_rule=null_quantile(q=0.95),
+        magnitude_rule=subject_volatility(multiple=tpl.magnitude_vol_multiple),
+        regime_scope=tpl.regime_scope,
+    )
 
-    if shape in UNCOMPILABLE_SHAPES:
-        raise NotCompilable(f"{shape}: {UNCOMPILABLE_SHAPES[shape]}")
-    if shape not in COMPILABLE_SHAPES:
-        raise NotCompilable(f"{shape}: no declared predicate")
 
-    stance = {"positive": "long", "negative": "short"}.get(predicted.sign.value, "abstain")
+def resolve_trade_type(core: TradeTypeCore, ctx: WindowContext, *, spark_ref: str,
+                       basis, field_of_phenomenon: dict, support_total: float,
+                       degraded_multiplier: float, support_scale: float,
+                       provenance: dict) -> TradeType:
+    """Apply a core to one window: resolve every rule from that window's own data.
+
+    This is the step the previous design skipped. Before, a threshold measured in
+    one epoch travelled unchanged into every other one — which is a fit to the
+    derivation window however carefully the entity ids were kept out of the form.
+    """
+    if core.required_shape in UNCOMPILABLE_SHAPES:
+        raise NotCompilable(f"{core.required_shape}: "
+                            f"{UNCOMPILABLE_SHAPES[core.required_shape]}")
+    if core.required_shape not in COMPILABLE_SHAPES:
+        raise NotCompilable(f"{core.required_shape}: no declared predicate")
+
+    separation = core.separation_rule.resolve(ctx)
+    magnitude = core.magnitude_rule.resolve(ctx)
+    stance = {"positive": "long", "negative": "short"}.get(core.sign, "abstain")
+    trigger_field = field_of_phenomenon[core.trigger_phenomenon]
 
     entry = {
-        # Named by BASIS FIELD and PHENOMENON, never by entity. The same predicate
-        # evaluates against any entity whose basis is covered.
         "residue_field": trigger_field,
-        "residue_phenomenon": field_phenomena[trigger_field].value,
-        "required_shape": shape,
-        "predicate": COMPILABLE_SHAPES[shape],
-        "min_separation": round(observation.separations[trigger_field].ratio * 0.5, 4),
-        "required_invariant_phenomena": sorted(
-            p.value for p in mech.template.requires_invariant),
+        "residue_phenomenon": core.trigger_phenomenon,
+        "required_shape": core.required_shape,
+        "predicate": COMPILABLE_SHAPES[core.required_shape],
+        "separation_rule": core.separation_rule.describe(),
+        "min_separation": round(separation, 6),
+        "required_invariant_phenomena": list(core.required_invariant_phenomena),
         "derived_from": "spark.principles.observation",
     }
+    horizon_days = basis.frame_span.days * core.horizon_frames
     direction = {
-        "stance": stance, "sign": predicted.sign.value,
-        "target_magnitude": predicted.magnitude,
-        "horizon_days": predicted.horizon.days,
+        "stance": stance, "sign": core.sign,
+        "magnitude_rule": core.magnitude_rule.describe(),
+        "target_magnitude": round(magnitude, 6),
+        "horizon_days": horizon_days,
         "derived_from": "spark.principles.mechanism.predicted_effect",
     }
     exit_rule = {
-        # The invalidation state machine IS the exit rule; nothing new is authored.
         "on_degraded": f"scale position to {degraded_multiplier}",
         "on_invalidated": "exit",
         "on_horizon": "close and resolve the registered prediction",
@@ -145,32 +231,40 @@ def compile_trade_type(spark, observation, moved: dict, invariant: list[str],
     }
     sizing = {
         "base": 0.0 if stance == "abstain" else 1.0,
-        # Accumulated support is a sizing input, not a gate — not a promotion
-        # criterion, but not discarded either.
-        "support_multiplier": round(min(1.0, (support.total or 0.0) / support_scale), 4),
+        "support_multiplier": round(min(1.0, (support_total or 0.0) / support_scale), 4),
         "degraded_multiplier": degraded_multiplier,
         "derived_from": "spark.principles.corroboration.accumulated_support",
     }
     universe = {
-        # A coverage requirement, not a list of names. An entity enters the
-        # universe by having the basis covered, and leaves when it does not.
         "requires_basis_fields": [trigger_field],
         "requires_phenomena": sorted(
-            {field_phenomena[trigger_field].value}
-            | {p.value for p in mech.template.requires_invariant}),
+            {core.trigger_phenomenon} | set(core.required_invariant_phenomena)),
         "basis_id": basis.id,
         "basis_version": basis.version,
     }
     return TradeType(
-        id=f"tt_{mech.template.id}",
-        spark_ref=spark.id, stance=stance, entry=entry, direction=direction,
+        id=f"tt_{core.mechanism_template}", core=core, resolved_in=ctx.epoch_id,
+        spark_ref=spark_ref, stance=stance, entry=entry, direction=direction,
         exit=exit_rule, sizing=sizing, universe=universe,
-        regime_scope=mech.template.regime_scope,
+        regime_scope=core.regime_scope, provenance=provenance)
+
+
+def compile_trade_type(spark, observation, moved: dict, invariant: list[str],
+                       field_phenomena: dict, support, basis, ctx: WindowContext,
+                       degraded_multiplier: float, support_scale: float) -> TradeType:
+    """Derive a core from a spark and resolve it against the window it came from."""
+    mech = spark.principles["mechanism"].payload
+    core = core_from(spark, field_phenomena)
+    return resolve_trade_type(
+        core, ctx, spark_ref=spark.id, basis=basis,
+        field_of_phenomenon={v.value: k for k, v in field_phenomena.items()},
+        support_total=support.total, degraded_multiplier=degraded_multiplier,
+        support_scale=support_scale,
         provenance={"mechanism_template": mech.template.id,
                     "specificity": getattr(mech, "specificity", None),
                     "support": support.total,
-                    "legs": [l.source_id for l in support.legs]},
-    )
+                    "legs": [l.source_id for l in support.legs],
+                    "derived_in": ctx.epoch_id})
 
 
 Strategies.register(StrategyKind(

@@ -335,3 +335,60 @@ move of +20% on a scenario built to be flat.
   would move, in a scenario constructed with nothing moving.
 - **No expectation envelope, no strategy decay monitoring, no portfolio layer.**
   A live strategy is monitored by nothing here once it is deployed.
+
+---
+
+# Epochs, and why a single-window form is still a fit
+
+The first historical run produced a form containing `min_separation = 1.2472`.
+It had no entity id and no date in it, and `is_generic()` passed — but that number
+came from one window's noise level, and in another regime it means something
+else entirely. The form was a fit to its derivation window wearing a generic
+costume. Keeping entity ids out is necessary and nowhere near sufficient.
+
+## The generic thing is the recipe, not the number
+
+A trade type now has two halves that never mix:
+
+**`TradeTypeCore`** — the invariant identity. Mechanism, the phenomenon that must
+move, the shape it must move in, the phenomena that must hold still, sign,
+horizon, and a **rule** for each parameter. This is the only thing that crosses an
+epoch boundary, and `identity()` is asserted to contain no floats.
+
+**Parameter rules** (`harness/parameters.py`) — recipes resolved against whatever
+window the form is applied in:
+
+| rule | claim | 2019H1 | 2023H1 |
+|---|---|---|---|
+| `null_quantile(q=0.95)` | further apart than noise gets *here* 95% of the time | 2.10 | 2.38 |
+| `subject_volatility(multiple=1.0)` | within the subject's own realised movement | 0.061 | 0.146 |
+
+Same rule, same claim, different number. A rule that cannot be resolved in a
+window **raises** rather than falling back to a default — a default would silently
+carry the derivation epoch's value into a window that never justified it, which is
+the exact bug this removes.
+
+## Promotion is replication, not survival
+
+`harness/epochs.py` declares disjoint epochs up front, each calibrated against
+**its own** null. `harness/replication.py` then promotes a core only when the same
+invariant identity is independently derived in at least `min_replications`
+distinct *derivation epochs*.
+
+Three rules that make that mean something:
+
+- **Epochs must be disjoint.** One that shares data with another is not an
+  independent replication, and the constructor refuses it.
+- **Firings are not replications.** Ten firings inside one epoch are one
+  observation with wide coverage — the windows overlap and the regime is shared.
+  Only distinct epochs count.
+- **Holdout derivations never count.** A core appearing only in the holdout was
+  not proposed; it was discovered while scoring, which is the same mistake in a
+  new place.
+
+## Admission and score are different columns
+
+The most recent epoch is a holdout the derivation never sees, and it is the only
+place a score may be quoted from. Everything measured on a derivation epoch is
+admission. `ScoreCard` keeps them in separate fields rather than separate rows,
+because printing them in one column is how the distinction gets lost.

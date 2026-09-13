@@ -23,6 +23,7 @@ from fixtures.layer import FixtureDataLayer
 from harness.bus import Bus
 from harness.claims import EMBEDDING_SPACE_VERSION, Sign
 from harness.execution import leak_check, run_universe
+from harness.parameters import WindowContext
 from harness.pipeline import compile_strategy, run
 from harness.prediction import (Ledger, PredictionRegistered,
                                 probability_from_support)
@@ -58,6 +59,11 @@ def market_benchmark(layer, at, outcome_for_us: int) -> dict | None:
             "brier": round((p_no_move - outcome_for_us) ** 2, 6)}
 
 
+def _vol(log):
+    mech = log.spark.principles.get("mechanism")
+    return mech.payload.predicted.magnitude if mech and mech.payload else 0.0
+
+
 def main():
     cal = calibrate()
     policy = policy_from(cal)
@@ -75,7 +81,9 @@ def main():
             print(f"{scenario}: no spark\n")
             continue
 
-        tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE)
+        ctx = WindowContext(epoch_id=scenario, null_quantile_fn=cal.quantile,
+                            subject_volatility=_vol(log), null_samples=cal.n)
+        tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE, ctx)
         print("=" * 78)
         if tt is None:
             print(f"SCENARIO {scenario}  ->  NO STRATEGY")

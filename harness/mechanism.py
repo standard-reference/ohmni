@@ -88,6 +88,30 @@ TEMPLATES: tuple[MechanismTemplate, ...] = (
         regime_scope="any",
     ),
     MechanismTemplate(
+        # A sibling of `transient_attention_no_flow`, not a replacement for it.
+        # The two make different claims — one says no WIRE picked it up, this one
+        # says no COMMUNITY did — and each is evaluable only where its
+        # measurement exists. Declared before any multi-epoch run, on coverage
+        # grounds: editorial publication is available in one epoch out of four,
+        # and a basis that differs between epochs cannot support a replication
+        # claim. Rewriting the original to fit the data would have been choosing
+        # the hypothesis to match the measurement.
+        id="transient_attention_no_discourse",
+        story=("Attention rose and decayed without corroborating community "
+               "discussion, order flow or positioning. Information-seeking that "
+               "no other process confirms reflects a transient interest event "
+               "rather than a change in the asset's prospects, so it does not "
+               "reprice."),
+        requires_moved=(Phenomenon.INFORMATION_SEEKING,),
+        requires_invariant=(Phenomenon.EXCHANGE_ACTIVITY,
+                            Phenomenon.RETAIL_DISCOURSE,
+                            Phenomenon.OFF_EXCHANGE_ROUTING),
+        path=("entity", "phen:information_seeking"),
+        compatible_shapes=TRANSIENT,
+        sign=Sign.NEUTRAL, magnitude_vol_multiple=1.0, horizon_frames=2,
+        regime_scope="any",
+    ),
+    MechanismTemplate(
         id="disclosure_repricing",
         story=("A corporate disclosure changed the information set and the asset "
                "repriced to it in a single step."),

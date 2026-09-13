@@ -20,6 +20,7 @@ from harness.observation import observe
 from harness.calibration import build_null_calibration
 from harness.claims import Sign
 from harness.execution import Decision, leak_check, run_universe
+from harness.parameters import WindowContext
 from harness.pipeline import RunPolicy, compile_strategy, run
 from harness.prediction import (Ledger, PredictionRegistered, RegistrationRefused,
                                 ResolutionRefused, claim_held,
@@ -61,8 +62,19 @@ def compiled(policy):
     layer = FixtureDataLayer(scenarios=("localised",), subjects=(ENT_A, ENT_B))
     log = run(layer, BASIS, spec["start"], ENT_A, INSTRUMENTS_OF[ENT_A][0],
               policy, REGISTRY)
-    tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE)
+    ctx = _ctx(log, policy)
+    tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE, ctx)
     return log, tt, strategy
+
+
+def _ctx(log, policy, epoch_id="localised"):
+    """A window context built from the window's own null and the subject's own
+    volatility — never from anywhere else."""
+    mech = log.spark.principles.get("mechanism")
+    vol = mech.payload.predicted.magnitude if mech and mech.payload else 0.0
+    return WindowContext(epoch_id=epoch_id,
+                         null_quantile_fn=lambda q: 1.5 + q,
+                         subject_volatility=vol, null_samples=400)
 
 
 # ── the form contains no instance ───────────────────────────────────────────
@@ -127,7 +139,7 @@ def test_an_inexpressible_shape_is_refused_not_approximated(compiled):
     object.__setattr__(mech, "trigger_shape", "oscillation")
     try:
         with pytest.raises(NotCompilable, match="oscillation"):
-            compile_strategy(log, BASIS, REGISTRY, UNIVERSE)
+            compile_strategy(log, BASIS, REGISTRY, UNIVERSE, _ctx(log, None))
     finally:
         object.__setattr__(mech, "trigger_shape", original)
 
@@ -152,7 +164,7 @@ def test_an_unpromoted_spark_compiles_to_nothing(policy):
     log = run(layer, BASIS, spec["start"], ENT_A, INSTRUMENTS_OF[ENT_A][0],
               policy, REGISTRY)
     assert log.spark is not None and not log.gate["promotable"]
-    tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE)
+    tt, strategy = compile_strategy(log, BASIS, REGISTRY, UNIVERSE, None)
     assert tt is None and strategy is None
 
 

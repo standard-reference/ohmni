@@ -29,10 +29,10 @@ CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "raw"
 USER_AGENT = "ohmni-research/0.1 (contact: bato2912@gmail.com)"
 
 MIN_INTERVAL = {
-    "data.sec.gov": 0.15,
-    "api.gdeltproject.org": 9.0,
-    "wikimedia.org": 0.2,
-    "cdn.finra.org": 0.1,
+    "data.sec.gov": 0.4,
+    "api.gdeltproject.org": 12.0,
+    "wikimedia.org": 3.0,
+    "cdn.finra.org": 0.25,
     "query1.finance.yahoo.com": 0.3,
 }
 
@@ -100,14 +100,16 @@ def fetch(url: str, *, absent: tuple[int, ...] = (), attempts: int = 7) -> Fetch
                 # series, and never a zero.
                 return None
             if e.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
+                # Capped: an uncapped doubling reaches five minutes on the sixth
+                # attempt, which is indistinguishable from a hang.
                 time.sleep(delay)
-                delay *= 2
+                delay = min(delay * 2, 45.0)
                 continue
             raise FetchFailed(f"{e.code} {url}") from e
         except (urllib.error.URLError, TimeoutError) as e:
             if attempt < attempts - 1:
                 time.sleep(delay)
-                delay *= 2
+                delay = min(delay * 2, 45.0)
                 continue
             raise FetchFailed(f"{e} {url}") from e
     raise FetchFailed(f"exhausted attempts: {url}")
