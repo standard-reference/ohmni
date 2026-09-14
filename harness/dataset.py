@@ -60,3 +60,74 @@ def freeze(*roots: Path) -> DatasetFreeze:
 def verify(expected: str, *roots: Path) -> tuple[bool, DatasetFreeze]:
     got = freeze(*roots)
     return got.id == expected, got
+
+
+# ── portability: a freeze id proves identity, a manifest rebuilds it ────────
+#
+# The id alone is only useful inside one container's lifetime. It says "this is
+# the same corpus" and gives no way to CHECK that a refetched corpus matches, or
+# to see which files drifted if it does not. A manifest is what makes a dataset
+# outlive the machine that first assembled it — which is the whole premise of
+# running each evaluation in a fresh session over the same data.
+
+@dataclass(frozen=True)
+class ManifestDiff:
+    ok: bool
+    missing: tuple[str, ...]     # in the manifest, absent from disk
+    changed: tuple[str, ...]     # present but different bytes
+    extra: tuple[str, ...]       # on disk, not in the manifest
+
+    def describe(self) -> str:
+        if self.ok:
+            return "rebuilt corpus is byte-identical to the manifest"
+        parts = []
+        for label, items in (("missing", self.missing), ("changed", self.changed),
+                             ("extra", self.extra)):
+            if items:
+                shown = ", ".join(items[:4]) + (" ..." if len(items) > 4 else "")
+                parts.append(f"{len(items)} {label} ({shown})")
+        return "; ".join(parts)
+
+
+def manifest(*roots: Path) -> dict:
+    """Per-file hashes, so a refetched corpus can be proved identical.
+
+    Stored under `<root-name>/<relative path>` rather than an absolute path, so a
+    manifest written in one container verifies in another.
+    """
+    entries: dict[str, str] = {}
+    for root in sorted(roots, key=str):
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                key = f"{root.name}/{path.relative_to(root).as_posix()}"
+                entries[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {"freeze": freeze(*roots).id, "files": entries}
+
+
+def write_manifest(target: Path, *roots: Path) -> DatasetFreeze:
+    import gzip
+
+    body = json.dumps(manifest(*roots), sort_keys=True, separators=(",", ":"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(gzip.compress(body.encode()))
+    return freeze(*roots)
+
+
+def verify_against_manifest(target: Path, *roots: Path) -> ManifestDiff:
+    """Compare a rebuilt corpus to a committed manifest, naming what differs.
+
+    A boolean would say the rebuild failed. This says which files — which is the
+    difference between "refetch everything again" and "three FINRA days are
+    missing because those markets were closed".
+    """
+    import gzip
+
+    stored = json.loads(gzip.decompress(target.read_bytes()))["files"]
+    current = manifest(*roots)["files"]
+    missing = tuple(sorted(set(stored) - set(current)))
+    extra = tuple(sorted(set(current) - set(stored)))
+    changed = tuple(sorted(k for k in set(stored) & set(current)
+                           if stored[k] != current[k]))
+    return ManifestDiff(not (missing or changed or extra), missing, changed, extra)

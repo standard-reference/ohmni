@@ -94,5 +94,23 @@ Run over four epochs, **nothing replicated** — the form that looked like a
 strategy in one period appears in one epoch of three.
 [`report 002`](docs/report-002-multi-epoch-replication.md).
 
+## Reproducing a run in a fresh session
+
+Each evaluation can run cold, in a new session with no memory, over the same
+pinned corpus. Two things make that meaningful:
+
+```bash
+python scripts/rebuild_dataset.py     # rebuild from public sources, then verify
+```
+
+- **`.dataset/manifest.json.gz`** pins every file by hash. Source data never
+  enters git — the repository carries the hashes and the corpus is rebuilt from
+  where it came from. A rebuild that cannot be proved identical is a different
+  dataset wearing the same name.
+- **`.budget/ledger.json`** is the one memory a stateless protocol must keep.
+  Re-running the same harness version costs nothing; a changed version costs a
+  budget unit whether or not anyone remembers the earlier run, because the
+  version is a content hash of the source.
+
 Start with [`docs/test-strategy.md`](docs/test-strategy.md), which is explicit
 about what the suite establishes and what it does not.

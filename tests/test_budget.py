@@ -141,3 +141,66 @@ def test_the_ledger_survives_the_session(tmp_path):
     reloaded.charge("2024H1", "h:two")
     with pytest.raises(BudgetExhausted):
         reloaded.charge("2024H1", "h:three")
+
+
+# ── the dataset must outlive the container that assembled it ───────────────
+
+def test_a_manifest_verifies_a_rebuilt_corpus(tmp_path):
+    """A freeze id proves identity within one machine. A manifest is what lets a
+    fresh container prove it reconstructed the same corpus — which is the whole
+    premise of running each evaluation in a new session over the same data."""
+    from harness.dataset import verify_against_manifest, write_manifest
+
+    src = tmp_path / "raw"
+    src.mkdir()
+    (src / "a").write_bytes(b"one")
+    (src / "b").write_bytes(b"two")
+    m = tmp_path / "m.json.gz"
+    write_manifest(m, src)
+    assert verify_against_manifest(m, src).ok
+
+
+def test_a_manifest_names_what_differs_rather_than_just_failing(tmp_path):
+    """A boolean says the rebuild failed. This says which files — the difference
+    between "refetch everything" and "three market-closed days are absent"."""
+    from harness.dataset import verify_against_manifest, write_manifest
+
+    src = tmp_path / "raw"
+    src.mkdir()
+    (src / "a").write_bytes(b"one")
+    (src / "b").write_bytes(b"two")
+    m = tmp_path / "m.json.gz"
+    write_manifest(m, src)
+
+    (src / "b").write_bytes(b"CHANGED")
+    (src / "c").write_bytes(b"new")
+    diff = verify_against_manifest(m, src)
+    assert not diff.ok
+    assert diff.changed == ("raw/b",)
+    assert diff.extra == ("raw/c",)
+    assert diff.missing == ()
+    assert "changed" in diff.describe() and "extra" in diff.describe()
+
+
+def test_a_manifest_is_portable_across_directories(tmp_path):
+    """Keyed on root NAME plus relative path, not an absolute path — a manifest
+    written in one container has to verify in the next one."""
+    from harness.dataset import verify_against_manifest, write_manifest
+
+    first = tmp_path / "one" / "raw"
+    first.mkdir(parents=True)
+    (first / "a").write_bytes(b"same")
+    m = tmp_path / "m.json.gz"
+    write_manifest(m, first)
+
+    second = tmp_path / "two" / "raw"
+    second.mkdir(parents=True)
+    (second / "a").write_bytes(b"same")
+    assert verify_against_manifest(m, second).ok
+
+
+def test_source_data_stays_out_of_git():
+    """The declared discipline that keeps the licensing option free at zero cost.
+    The repository carries hashes; the corpus is rebuilt from public sources."""
+    ignored = Path(".gitignore").read_text().splitlines()
+    assert ".cache/" in ignored
