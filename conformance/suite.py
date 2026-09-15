@@ -390,3 +390,36 @@ def _lag_honours_declaration(layer: DataLayer) -> str | None:
                     f"{r.knowable_at - r.event_time}, sooner than the declared "
                     f"{em.publication_lag}")
     return None
+
+
+@check("no_network_in_read", None,
+       "a live lookup behind a read — the failure that puts present-day values "
+       "inside a replay with no guard able to see it")
+def _no_network_in_read(layer: DataLayer) -> str | None:
+    """Reading an already-loaded layer must not touch the network.
+
+    `fetch` is the only network boundary; everything after it is a pure function
+    of what it cached. This is the check that makes that structural rather than
+    a convention — a layer that reaches out during a read is one that can serve a
+    present-day value at sim-time 2019, and no amount of timestamp discipline
+    downstream would notice.
+    """
+    import socket
+
+    real = socket.socket
+
+    class Blocked(socket.socket):
+        def __init__(self, *a, **kw):
+            raise AssertionError("network access during a read")
+
+    socket.socket = Blocked                       # type: ignore[misc]
+    try:
+        list(layer.stream(*WIDE, subjects=[]))[:50]
+    except AssertionError:
+        return ("the layer opened a socket while streaming; reads must be served "
+                "from what fetch already cached")
+    except Exception as e:
+        return f"{type(e).__name__} while streaming with the network blocked: {e}"
+    finally:
+        socket.socket = real                      # type: ignore[misc]
+    return None

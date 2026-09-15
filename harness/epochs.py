@@ -43,6 +43,13 @@ class EpochSet:
     #: treated as replicated rather than fitted. Required, no default — it is the
     #: single number that decides how much recurrence counts as evidence.
     min_replications: int
+    #: Fraction of an epoch's frames a field must be populated in before it
+    #: counts as shared with another epoch. Required, no default: a field present
+    #: everywhere but populated in a fifth of one epoch's frames is not really
+    #: shared, and a default would hide exactly the partial outage this exists to
+    #: catch. Declared here so it is recorded with the protocol rather than
+    #: living at a call site nobody reading a report can find.
+    min_coverage: float
 
     def __post_init__(self) -> None:
         spans = sorted(((e.start, e.end, e.id) for e in self.epochs))
@@ -58,6 +65,14 @@ class EpochSet:
 
     def holdout(self) -> tuple[Epoch, ...]:
         return tuple(e for e in self.epochs if e.holdout)
+
+    def declared(self) -> dict:
+        """The protocol, as recorded alongside a run. Everything a reader needs
+        to know what bar the result was measured against."""
+        return {"epochs": [e.id for e in self.epochs],
+                "holdout": [e.id for e in self.holdout()],
+                "min_replications": self.min_replications,
+                "min_coverage": self.min_coverage}
 
     def by_id(self, eid: str) -> Epoch:
         return next(e for e in self.epochs if e.id == eid)
@@ -81,4 +96,5 @@ DEFAULT_EPOCHS = EpochSet(
         half_year(2024, 1, "AI continuation", holdout=True),
     ),
     min_replications=2,
+    min_coverage=0.75,
 )

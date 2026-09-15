@@ -66,8 +66,25 @@ class EpochBudget:
     @property
     def spent(self) -> int:
         """Distinct harness versions evaluated against this epoch. Re-running the
-        SAME version costs nothing — that is reproduction, not another test."""
+        SAME version costs nothing — that is reproduction, not another test.
+
+        This governs the sealed-holdout cap: it answers "how many times did you
+        look". It is NOT the multiple-testing surface — see `evaluations`.
+        """
         return len({o["harness_version"] for o in self.opens})
+
+    @property
+    def evaluations(self) -> int:
+        """How many (window, entity) pairs were actually tested here.
+
+        A distinct quantity from `spent`, and the one a deflated-Sharpe
+        correction consumes. One harness version against one epoch is one *look*
+        but can be a hundred and sixty *tests*, and charging a single unit for
+        the lot undercounts precisely the multiple testing this ledger exists to
+        make visible. Both are recorded; neither is allowed to stand in for the
+        other.
+        """
+        return sum(o.get("evaluations", 0) for o in self.opens)
 
     @property
     def remaining(self) -> int | None:
@@ -99,8 +116,14 @@ class BudgetLedger:
         return self.epochs.setdefault(
             epoch_id, EpochBudget(epoch_id=epoch_id, sealed=sealed, max_opens=max_opens))
 
-    def charge(self, epoch_id: str, version: str, note: str = "") -> EpochBudget:
-        """Record that this harness version was evaluated against this epoch."""
+    def charge(self, epoch_id: str, version: str, note: str = "",
+               evaluations: int = 0) -> EpochBudget:
+        """Record that this harness version was evaluated against this epoch.
+
+        `evaluations` is the number of (window, entity) pairs the run will test.
+        It does not affect the holdout cap — looking once is looking once — but
+        it is what makes the multiple-testing surface countable afterwards.
+        """
         b = self.epochs.get(epoch_id)
         if b is None:
             raise KeyError(f"{epoch_id} was never declared in this ledger")
@@ -112,6 +135,7 @@ class BudgetLedger:
                 "A holdout consulted again is a derivation epoch nobody relabelled; "
                 "declare it as one rather than quoting another score from it.")
         b.opens.append({"harness_version": version, "note": note,
+                        "evaluations": evaluations,
                         "at": datetime.now(timezone.utc).isoformat()})
         return b
 
@@ -120,5 +144,5 @@ class BudgetLedger:
         for eid, b in sorted(self.epochs.items()):
             cap = "unlimited" if b.max_opens is None else f"{b.spent}/{b.max_opens}"
             lines.append(f"  {eid:8s} {'SEALED' if b.sealed else 'derive':7s} "
-                         f"spent={cap}  versions={len({o['harness_version'] for o in b.opens})}")
+                         f"looks={cap}  tests={b.evaluations}")
         return "\n".join(lines)

@@ -236,3 +236,18 @@ daily mention counts. The lighter `gkgcounts` variant is 4.7 MB/day (~850 MB per
 epoch), which is tractable. Either way, an adapter against the bulk archive is
 not yet written — what exists is the machinery that would have stopped the run
 before it produced an uncheckable comparison.
+
+---
+
+> ## AMENDED — see report 004
+>
+> Run 003 put this protocol over block-bootstrap null markets, 10 seeds, with the
+> reading declared in advance. Single-epoch promotion clusters appeared in **4 of
+> 10 null seeds**, with sizes 3, 4, 5, 6 and 8. The result reported above — three
+> promotions, one core, all inside 2021H1 — is the *smallest* cluster the nulls
+> produced, and one null seed reproduced it exactly.
+>
+> **The 2021H1 cluster is what chance gives.** The attention-without-discourse
+> explanation offered above is a post-hoc rationalisation of noise and should not
+> be relied on. The conclusion that nothing *replicated* still stands; what does
+> not stand is treating the single-epoch cluster as a signal worth explaining.

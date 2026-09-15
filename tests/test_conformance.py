@@ -44,7 +44,7 @@ def test_every_check_is_exercised_by_some_adversarial_layer():
         "declaration_completeness", "measurement_process_declared",
         "cadence_declared", "emission_matches_output",
         "lag_honours_declaration", "coupling_wellformed",
-        "availability_present",
+        "availability_present", "no_network_in_read",
     }
     assert uncovered == expected_gaps, f"unexpected coverage gap: {uncovered}"
 

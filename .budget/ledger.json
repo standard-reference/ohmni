@@ -9,6 +9,12 @@
           "at": "2026-09-13T15:55:09.461111+00:00",
           "harness_version": "h:0daf13110ebec352",
           "note": "derivation"
+        },
+        {
+          "at": "2026-09-15T11:55:26.445533+00:00",
+          "evaluations": 1080,
+          "harness_version": "h:328e5dd176934f52",
+          "note": "run003 null protocol, 10 seeds x2 configs"
         }
       ],
       "sealed": false
@@ -21,6 +27,12 @@
           "at": "2026-09-13T15:55:13.733271+00:00",
           "harness_version": "h:0daf13110ebec352",
           "note": "derivation"
+        },
+        {
+          "at": "2026-09-15T11:55:26.445568+00:00",
+          "evaluations": 1080,
+          "harness_version": "h:328e5dd176934f52",
+          "note": "run003 null protocol, 10 seeds x2 configs"
         }
       ],
       "sealed": false
@@ -33,6 +45,12 @@
           "at": "2026-09-13T15:55:17.582578+00:00",
           "harness_version": "h:0daf13110ebec352",
           "note": "derivation"
+        },
+        {
+          "at": "2026-09-15T11:55:26.445572+00:00",
+          "evaluations": 1080,
+          "harness_version": "h:328e5dd176934f52",
+          "note": "run003 null protocol, 10 seeds x2 configs"
         }
       ],
       "sealed": false

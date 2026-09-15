@@ -1,0 +1,16 @@
+{
+  "dataset": "sha256:0d9589321042540b1c1c0525fc593b60e750b14c672b1ea7f141273ba8f1f706",
+  "harness": "h:328e5dd176934f52",
+  "seeds": 10,
+  "block": 5,
+  "inner_calibration": 8,
+  "min_cluster": 2,
+  "promotions_per_epoch": {
+    "2019H1": 0,
+    "2021H1": 18,
+    "2023H1": 8
+  },
+  "total_clusters": 5,
+  "seeds_with_clusters": 4,
+  "verdict": "2021H1 is WHAT CHANCE GIVES by the declared reading. The substantive explanation is post-hoc rationalisation of noise; reports 002 and 003 need amending."
+}

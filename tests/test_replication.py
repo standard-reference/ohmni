@@ -42,20 +42,20 @@ def test_epochs_must_be_disjoint():
         EpochSet(epochs=(
             Epoch("a", datetime(2019, 1, 1, tzinfo=UTC), datetime(2019, 12, 1, tzinfo=UTC), ""),
             Epoch("b", datetime(2019, 6, 1, tzinfo=UTC), datetime(2020, 6, 1, tzinfo=UTC), ""),
-        ), min_replications=2)
+        ), min_replications=2, min_coverage=0.75)
 
 
 def test_a_holdout_is_excluded_from_derivation():
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
                           half_year(2023, 1, "c", holdout=True)),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     assert {e.id for e in es.derivation()} == {"2019H1", "2021H1"}
     assert {e.id for e in es.holdout()} == {"2023H1"}
 
 
 def test_you_cannot_demand_more_replications_than_epochs():
     with pytest.raises(ValueError, match="more replications"):
-        EpochSet(epochs=(half_year(2019, 1, "a"),), min_replications=2)
+        EpochSet(epochs=(half_year(2019, 1, "a"),), min_replications=2, min_coverage=0.75)
 
 
 # ── parameters are recipes, not numbers ─────────────────────────────────────
@@ -125,7 +125,7 @@ def test_many_firings_in_one_epoch_are_not_a_replication():
     is how a single period's quirk gets promoted as a law."""
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
                           half_year(2023, 1, "c", holdout=True)),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     same_epoch = [derivation("2019H1", f"E{i}") for i in range(10)]
     assert group_by_core(same_epoch)[0].epochs == {"2019H1"}
     assert not replicated_cores(same_epoch, es)
@@ -134,7 +134,7 @@ def test_many_firings_in_one_epoch_are_not_a_replication():
 def test_the_same_core_in_two_epochs_replicates():
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
                           half_year(2023, 1, "c", holdout=True)),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     got = replicated_cores([derivation("2019H1", "A"), derivation("2021H1", "B")], es)
     assert len(got) == 1
     assert got[0].epochs == {"2019H1", "2021H1"}
@@ -145,7 +145,7 @@ def test_a_holdout_derivation_never_counts_toward_replication():
     discovered while scoring, which is the same mistake in a new place."""
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
                           half_year(2023, 1, "c", holdout=True)),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     assert not replicated_cores(
         [derivation("2019H1", "A"), derivation("2023H1", "B")], es)
 
@@ -231,7 +231,7 @@ def test_a_core_untestable_in_some_epochs_is_refused_not_credited():
 
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
                           half_year(2023, 1, "c", holdout=True)),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     needs_news = core()
     object.__setattr__(needs_news, "required_invariant_phenomena",
                        ("exchange_activity", "editorial_publication"))
@@ -248,7 +248,7 @@ def test_checking_commensurability_requires_a_coverage_floor():
     from harness.replication import replicated_cores
 
     es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b")),
-                  min_replications=2)
+                  min_replications=2, min_coverage=0.75)
     with pytest.raises(ValueError, match="min_coverage is required"):
         replicated_cores([derivation("2019H1", "A")], es,
                          [_realization("2019H1", ["x"])], min_coverage=None)
@@ -316,3 +316,94 @@ def test_the_manifest_records_which_sources_were_unavailable():
     assert m.unavailable_sources == ("gdelt.news",)
     assert m.event_set_hash() != before, (
         "a run missing a source must not hash the same as one that had it")
+
+
+# ── the cross-epoch channel: does the core carry its derivation window? ─────
+
+def test_window_independence_catches_a_baked_constant():
+    """The check `is_generic()` cannot perform.
+
+    A type check cannot tell a declared `q=0.95` from a fitted threshold — both
+    are floats. Behaviour can: a rule resolves differently in materially
+    different windows, a constant does not. The core is the only thing crossing
+    an epoch boundary, so this is also the cross-epoch leak check.
+    """
+    from harness.parameters import constant
+    from harness.strategy import resolve_trade_type
+
+    quiet = WindowContext("2019H1", lambda q: 2.10, 0.061, 800)
+    loud = WindowContext("2023H1", lambda q: 4.90, 0.180, 800)
+
+    def resolve(c, ctx):
+        return resolve_trade_type(
+            c, ctx, spark_ref="s", basis=_basis(),
+            field_of_phenomenon={"information_seeking": "pageviews_rate"},
+            support_total=1.0, degraded_multiplier=0.25, support_scale=3.0,
+            provenance={})
+
+    honest = core()
+    ok, carried = honest.window_independence(resolve, quiet, loud)
+    assert ok, carried
+
+    fitted = core()
+    object.__setattr__(fitted, "separation_rule", constant(1.2472))
+    ok, carried = fitted.window_independence(resolve, quiet, loud)
+    assert not ok
+    assert carried == ["entry.min_separation"]
+
+
+def _basis():
+    from datetime import timedelta
+
+    from harness.observation import Basis, BasisField
+
+    return Basis(id="b", resolution="P7D", frame_count=8,
+                 frame_span=timedelta(days=7),
+                 fields=(BasisField("pageviews_rate", "wikimedia.pageviews",
+                                    "pageviews"),))
+
+
+# ── looks and tests are different quantities ───────────────────────────────
+
+def test_the_ledger_separates_looks_from_tests(tmp_path):
+    """One harness version against one epoch is one LOOK but can be a hundred
+    and sixty TESTS. Charging a single unit for the lot undercounts exactly the
+    multiple testing the ledger exists to make visible."""
+    from harness.budget import BudgetLedger
+
+    led = BudgetLedger(path=tmp_path / "l.json", dataset_id="d")
+    led.declare("2019H1", sealed=False, max_opens=None)
+    led.charge("2019H1", "h:one", "derivation", evaluations=54)
+    led.charge("2019H1", "h:two", "derivation", evaluations=54)
+    b = led.epochs["2019H1"]
+    assert b.spent == 2, "two looks"
+    assert b.evaluations == 108, "one hundred and eight tests"
+
+
+def test_evaluations_do_not_consume_the_holdout_cap(tmp_path):
+    """Looking once is looking once, however many pairs that look covered."""
+    from harness.budget import BudgetLedger
+
+    led = BudgetLedger(path=tmp_path / "l.json", dataset_id="d")
+    led.declare("2024H1", sealed=True, max_opens=1)
+    led.charge("2024H1", "h:one", evaluations=1000)
+    assert led.epochs["2024H1"].remaining == 0
+    assert led.epochs["2024H1"].evaluations == 1000
+
+
+# ── the protocol is recorded, not left at a call site ──────────────────────
+
+def test_the_replication_protocol_is_declared_and_recordable():
+    es = EpochSet(epochs=(half_year(2019, 1, "a"), half_year(2021, 1, "b"),
+                          half_year(2023, 1, "c", holdout=True)),
+                  min_replications=2, min_coverage=0.75)
+    d = es.declared()
+    assert d["min_replications"] == 2 and d["min_coverage"] == 0.75
+    assert d["holdout"] == ["2023H1"]
+
+
+def test_the_coverage_floor_has_no_default():
+    import inspect
+
+    assert inspect.signature(EpochSet).parameters["min_coverage"].default \
+        is inspect.Parameter.empty

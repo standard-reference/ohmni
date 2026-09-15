@@ -205,7 +205,8 @@ def main():
     for e in es.epochs:
         print(f"  {e.id}  {e.start:%Y-%m-%d}..{e.end:%Y-%m-%d}  "
               f"{'HOLDOUT' if e.holdout else 'derive '}  {e.regime_note}")
-    print(f"  a core must replicate in >= {es.min_replications} derivation epochs\n")
+    print(f"  a core must replicate in >= {es.min_replications} derivation epochs, "
+          f"over fields covered in >= {es.min_coverage:.0%} of frames\n")
 
     all_derivations: list[Derivation] = []
     contexts: dict[str, dict] = {}
@@ -238,7 +239,7 @@ def main():
     print("=" * 78 + "\nBASIS COMMENSURABILITY\n" + "=" * 78)
     for r in realizations:
         print(f"  {r.describe()}")
-    verdict = compare(realizations, min_coverage=0.75,
+    verdict = compare(realizations, min_coverage=es.min_coverage,
                       field_phenomena={k: v.value for k, v in
                                        contexts[realizations[0].epoch_id]["phen"].items()})
     print(f"  verdict: {verdict.verdict} — {verdict.reason}")
@@ -247,7 +248,8 @@ def main():
     for rep in group_by_core(all_derivations):
         print(f"  {rep.summary(es.min_replications)}")
         print(f"      {rep.core.describe()}")
-    promoted = replicated_cores(all_derivations, es, realizations, min_coverage=0.75)
+    promoted = replicated_cores(all_derivations, es, realizations,
+                                min_coverage=es.min_coverage)
     for rep in group_by_core(all_derivations):
         if rep.refused_reason:
             print(f"  REFUSED {rep.core.id}: {rep.refused_reason}")

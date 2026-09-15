@@ -102,6 +102,31 @@ class TradeTypeCore:
                 self.horizon_frames, self.separation_rule.kind,
                 self.magnitude_rule.kind)
 
+    def window_independence(self, resolve, ctx_a, ctx_b) -> tuple[bool, list[str]]:
+        """Does this core actually carry rules, or a constant wearing one's name?
+
+        A type check cannot answer it: `q=0.95` and `multiple=1.0` are floats and
+        are legitimately declared, while a fitted threshold is also a float. What
+        separates them is behaviour — a rule resolves differently in materially
+        different windows, and a baked constant does not.
+
+        So resolve the same core against two windows and look at the fields the
+        rules govern. Any that fail to move is carrying its derivation window,
+        whatever it is named. This is the check `is_generic()` cannot perform and
+        the one the single-window fit would have failed.
+
+        The core is the ONLY thing that crosses an epoch boundary, so this is
+        also the cross-epoch leak check: it asks whether information from the
+        derivation epoch travelled inside the form.
+        """
+        a, b = resolve(self, ctx_a), resolve(self, ctx_b)
+        carried = []
+        for section, key in (("entry", "min_separation"),
+                             ("direction", "target_magnitude")):
+            if getattr(a, section)[key] == getattr(b, section)[key]:
+                carried.append(f"{section}.{key}")
+        return (not carried), carried
+
     def describe(self) -> str:
         return (f"{self.mechanism_template}: {self.trigger_phenomenon} moves "
                 f"{self.required_shape} while "
@@ -133,7 +158,13 @@ class TradeType:
     provenance: dict
 
     def is_generic(self, forbidden_literals: tuple[str, ...]) -> tuple[bool, list[str]]:
-        """No entity id, instrument id or date may appear anywhere in the form."""
+        """No entity id, instrument id or date may appear anywhere in the form.
+
+        Necessary and nowhere near sufficient — a threshold derived in one window
+        carries that window with it and contains no entity id at all. For the
+        stronger property see `TradeTypeCore.window_independence`, which is a
+        behavioural check rather than a textual one.
+        """
         blob = json.dumps({k: v for k, v in asdict(self).items()
                            if k not in ("id", "spark_ref", "provenance",
                                         "resolved_in", "core")}, default=str)
