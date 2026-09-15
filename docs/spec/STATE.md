@@ -1,6 +1,8 @@
 # Implementation state — gaps beside the spec, not folded into it
 
-*Updated 2026-09-15 after report 004. Companion to `docs/spec/01`–`05`.*
+*Updated 2026-09-15 after report 004. The living companion to
+[`ohmni-specification-v4.md`](ohmni-specification-v4.md); its §29 is a snapshot,
+this is the dated version. Where they disagree, this one is current.*
 
 Where the spec is right and the implementation is thinner, the gap is recorded
 **here**, never by editing the spec to describe what exists. Rewriting a spec to

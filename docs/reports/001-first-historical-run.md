@@ -1,6 +1,12 @@
 # Report 001 — First historical run
 
 *2026-09-13. Six entities, six months, five real sources, replayed as a
+
+> **Status.** Findings stand. The magnitude correction it forced — claims bounded
+> by the subject's own realised movement rather than an absolute return — is now
+> spec (§24) and is the reason later runs are expressible at all. The *strategy*
+> it produced was superseded by report 002 and finally shown to be noise by
+> report 004; read this for the correction, not for the result.
 time-lapsed stream.*
 
 ---

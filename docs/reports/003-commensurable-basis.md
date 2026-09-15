@@ -1,6 +1,14 @@
 # Report 003 — Bulk archive, a commensurable basis, and still no replication
 
 *2026-09-13. Follows report 002. Same four epochs, now over a basis that is
+
+> **Status.** The basis-commensurability result stands: all fields expressible in
+> every epoch, verified rather than assumed, and nothing replicated across them.
+>
+> The **2021H1 cluster is withdrawn as a signal.** Report 004 ran this protocol
+> over null markets and found single-epoch clusters in 4 of 10 seeds, sizes 3 to
+> 8. The cluster reported here — three promotions, one core — is the smallest the
+> nulls produced, and one null seed reproduced it exactly.
 genuinely identical across all of them.*
 
 ---
@@ -137,18 +145,3 @@ python -m pytest tests/ -q
 The dataset hash pins exactly which bytes produced this. A rerun of the same
 harness version over the same freeze costs no budget — reproduction is not
 another test.
-
----
-
-> ## AMENDED — see report 004
->
-> Run 003 put this protocol over block-bootstrap null markets, 10 seeds, with the
-> reading declared in advance. Single-epoch promotion clusters appeared in **4 of
-> 10 null seeds**, with sizes 3, 4, 5, 6 and 8. The result reported above — three
-> promotions, one core, all inside 2021H1 — is the *smallest* cluster the nulls
-> produced, and one null seed reproduced it exactly.
->
-> **The 2021H1 cluster is what chance gives.** The attention-without-discourse
-> explanation offered above is a post-hoc rationalisation of noise and should not
-> be relied on. The conclusion that nothing *replicated* still stands; what does
-> not stand is treating the single-epoch cluster as a signal worth explaining.

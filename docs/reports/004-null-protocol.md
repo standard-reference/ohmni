@@ -1,6 +1,10 @@
 # Report 004 — Run 003: the one positive signal is noise
 
 *2026-09-15. Executes drift audit 001 part 4. Reading declared before the run;
+
+> **Status.** Current. Supersedes the positive readings in reports 002 and 003,
+> and its second finding — that promotion rate is a property of the epoch rather
+> than the market — is open issue rank 1 in [`STATE.md`](../spec/STATE.md).
 result read against it unchanged.*
 
 ---
@@ -129,5 +133,5 @@ python demo/run003_null_protocol.py 10          # 4 inner calibration runs
 INNER_CAL=8 python demo/run003_null_protocol.py 10   # matching report 003
 ```
 
-Result recorded in `docs/run003_null_result.json`, pinned to dataset
+Result recorded in `docs/reports/004-null-result.json`, pinned to dataset
 `sha256:0d9589321` and harness `h:328e5dd176934f52`.

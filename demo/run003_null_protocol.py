@@ -218,7 +218,7 @@ def main() -> None:
         verdict = ("INCONCLUSIVE by the declared reading — one cluster. More "
                    "seeds or more epochs before either reading is supportable.")
     print(f"    {verdict}")
-    Path("docs/run003_null_result.json").write_text(json.dumps(
+    Path("docs/reports/004-null-result.json").write_text(json.dumps(
         {"dataset": frozen.id, "harness": harness_version(), "seeds": seeds,
          "block": BLOCK, "inner_calibration": INNER_CALIBRATION_RUNS,
          "min_cluster": MIN_CLUSTER, "promotions_per_epoch": dict(totals),
